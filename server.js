@@ -21,7 +21,8 @@ app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
   res.sendStatus(200);
 });
 
-const bot = new TelegramBot(TELEGRAM_TOKEN);
+const PORT = process.env.PORT || 3000;
+const bot = new TelegramBot(TELEGRAM_TOKEN, { webHook: { port: PORT } });
 bot.setWebHook(`${WEBHOOK_URL}/bot${TELEGRAM_TOKEN}`);
 
 bot.on('message', async (msg) => {
@@ -36,7 +37,6 @@ bot.on('message', async (msg) => {
 });
 
 // Listen port
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log('🚀 HTTP Server ativo em', PORT);
 });
