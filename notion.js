@@ -1,7 +1,15 @@
 // notion.js
 require('dotenv').config();
+console.log('[NOTION] Valor de process.env.NOTION_API_KEY:', process.env.NOTION_API_KEY 
+  ? `***${process.env.NOTION_API_KEY.slice(-6)}` 
+  : 'NÃO DEFINIDA');
+
+console.log('[NOTION] Valor de process.env.NOTION_DATABASE_ID:', process.env.NOTION_DATABASE_ID 
+  ? `***${process.env.NOTION_DATABASE_ID.slice(-6)}` 
+  : 'NÃO DEFINIDA');
 const { Client } = require("@notionhq/client");
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
+console.log('[NOTION] Instanciando client Notion...');
 const axios = require('axios');
 
 // Chat ID fixo para testes
