@@ -22,7 +22,7 @@ app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const bot = new TelegramBot(TELEGRAM_TOKEN, { webHook: { port: PORT } });
+const bot = new TelegramBot(TELEGRAM_TOKEN);   // <<< SÓ ASSIM
 bot.setWebHook(`${WEBHOOK_URL}/bot${TELEGRAM_TOKEN}`);
 
 bot.on('message', async (msg) => {
