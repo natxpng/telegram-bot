@@ -2,31 +2,33 @@
 require('dotenv').config();
 const { Client } = require("@notionhq/client");
 
+// --- LOGS DE DIAGNÓSTICO ---
 console.log(`[DIAGNÓSTICO] Versão do Node.js em execução: ${process.version}`);
-try {
-  const notionClientPath = require.resolve('@notionhq/client');
-  console.log(`[DIAGNÓSTICO] Pacote @notionhq/client encontrado em: ${notionClientPath}`);
-} catch (e) {
-  console.error('[DIAGNÓSTICO] ERRO: Pacote @notionhq/client não foi encontrado!');
-}
-// Validação de variáveis de ambiente
+// --- FIM DOS LOGS ---
+
 if (!process.env.NOTION_API_KEY || !process.env.NOTION_DATABASE_ID) {
-  console.error("[NOTION] ERRO: NOTION_API_KEY ou NOTION_DATABASE_ID não estão definidos no seu arquivo .env!");
-  process.exit(1); // Encerra a aplicação se as chaves não existirem
+  console.error("[NOTION] ERRO: NOTION_API_KEY ou NOTION_DATABASE_ID não estão definidos!");
+  process.exit(1);
 }
 
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
 const DATABASE_ID = process.env.NOTION_DATABASE_ID;
+console.log('[NOTION] Client Notion instanciado.');
 
-console.log('[NOTION] Client Notion instanciado com sucesso.');
+// --- A MUDANÇA CRÍTICA ESTÁ AQUI ---
+// Verificamos UMA VEZ se a função moderna existe
+const USA_QUERY_MODERNO = (notion.databases && notion.databases.query);
 
-// --- FUNÇÕES DE ESCRITA ---
+if (USA_QUERY_MODERNO) {
+  console.log('[DIAGNÓSTICO] Função `notion.databases.query` FOI encontrada. Usando SDK moderno.');
+} else {
+  // Isto é o que vai acontecer no seu Render
+  console.warn('[DIAGNÓSTICO] AVISO: Função `notion.databases.query` NÃO FOI encontrada. Usando fallback `notion.search`.');
+}
+// ------------------------------------
 
-/**
- * Salva os dados iniciais do usuário (onboarding) no Notion.
- */
+// ... (Suas funções salvarTriagemNotion e salvarGastoNotion não mudam) ...
 async function salvarTriagemNotion({ chatId, nome, renda, fixos, variaveis, poupanca }) {
-  console.log('[salvarTriagemNotion] Dados:', { chatId, nome, renda, fixos, variaveis, poupanca });
   await notion.pages.create({
     parent: { database_id: DATABASE_ID },
     properties: {
@@ -39,13 +41,7 @@ async function salvarTriagemNotion({ chatId, nome, renda, fixos, variaveis, poup
     }
   });
 }
-
-/**
- * Salva uma nova transação de gasto no Notion.
- * (Campos extras foram removidos para corresponder ao que 'gastos.js' envia)
- */
 async function salvarGastoNotion({ chatId, nome, data, descricao, valor, tipoPagamento, categoria }) {
-  console.log('[salvarGastoNotion] Dados:', { chatId, nome, data, descricao, valor, tipoPagamento, categoria });
   await notion.pages.create({
     parent: { database_id: DATABASE_ID },
     properties: {
@@ -60,123 +56,111 @@ async function salvarGastoNotion({ chatId, nome, data, descricao, valor, tipoPag
   });
 }
 
-// --- FUNÇÕES DE LEITURA (CORRIGIDAS) ---
 
-/**
- * Busca a página de perfil de um usuário específico.
- */
+// --- FUNÇÕES DE LEITURA CORRIGIDAS (COM IF/ELSE) ---
+
 async function buscarDadosUsuarioNotion(chatId) {
-  // CORREÇÃO: Removemos o 'chatId = CHAT_ID_FIXO;'
-  const response = await notion.databases.query({
-    database_id: DATABASE_ID,
-    filter: {
-      and: [
-        {
-          property: 'Telegram User ID',
-          number: { equals: chatId }
-        },
-        { // OTIMIZAÇÃO: Garante que estamos pegando a página de perfil (que tem renda), não um gasto.
-          property: 'Renda Mensal',
-          number: { is_not_empty: true }
-        }
-      ]
-    }
-  });
-  return response.results[0]?.properties || null;
+  // Agora ele vai usar o fallback (else) no seu Render e parar de quebrar
+  if (USA_QUERY_MODERNO) {
+    // --- VERSÃO NOVA (ideal) ---
+    console.log(`[LOG] Executando buscarDadosUsuarioNotion (ChatID: ${chatId}) via notion.databases.query() [MODERNO]`);
+    const response = await notion.databases.query({
+      database_id: DATABASE_ID,
+      filter: { and: [
+          { property: 'Telegram User ID', number: { equals: chatId } },
+          { property: 'Renda Mensal', number: { is_not_empty: true } }
+      ]}
+    });
+    return response.results[0]?.properties || null;
+  } else {
+    // --- VERSÃO ANTIGA (fallback) ---
+    console.log(`[LOG] Executando buscarDadosUsuarioNotion (ChatID: ${chatId}) via notion.search() [FALLBACK]`);
+    const response = await notion.search({
+      filter: { property: 'object', value: 'page' }
+    });
+    const page = response.results.find(p => {
+      const props = p.properties || {};
+      return props['Telegram User ID']?.number === chatId &&
+             props['Renda Mensal']?.number !== undefined;
+    });
+    return page?.properties || null;
+  }
 }
 
-/**
- * Busca todos os gastos de um usuário e agrupa os totais por categoria.
- */
 async function buscarGastosPorCategoria(chatId) {
-  // CORREÇÃO: Removemos o 'chatId = CHAT_ID_FIXO;'
-  const response = await notion.databases.query({
-    database_id: DATABASE_ID,
-    filter: {
-      and: [
-        {
-          property: 'Telegram User ID',
-          number: { equals: chatId }
-        },
-        { // OTIMIZAÇÃO: Filtro para pegar apenas entradas de gastos (que têm valor), não o perfil.
-          property: 'Valor',
-          number: { is_not_empty: true }
-        }
-      ]
-    }
-  });
-
-  const gastos = response.results;
+  let gastos = [];
+  if (USA_QUERY_MODERNO) {
+    // --- VERSÃO NOVA (ideal) ---
+    console.log(`[LOG] Executando buscarGastosPorCategoria (ChatID: ${chatId}) via notion.databases.query() [MODERNO]`);
+    const response = await notion.databases.query({
+      database_id: DATABASE_ID,
+      filter: { and: [
+          { property: 'Telegram User ID', number: { equals: chatId } },
+          { property: 'Valor', number: { is_not_empty: true } }
+      ]}
+    });
+    gastos = response.results;
+  } else {
+    // --- VERSÃO ANTIGA (fallback) ---
+    console.log(`[LOG] Executando buscarGastosPorCategoria (ChatID: ${chatId}) via notion.search() [FALLBACK]`);
+    const response = await notion.search({ filter: { property: 'object', value: 'page' } });
+    gastos = response.results.filter(p => {
+        const props = p.properties || {};
+        return props['Telegram User ID']?.number === chatId &&
+               props['Valor']?.number !== undefined;
+    });
+  }
+  
   const categorias = {};
-
   for (const gasto of gastos) {
     const props = gasto.properties;
     let categoria = props['Categoria']?.select?.name?.trim() || 'Outro';
     const valor = props['Valor']?.number || 0;
     categorias[categoria] = (categorias[categoria] || 0) + valor;
   }
-  
   return categorias;
 }
 
-/**
- * Busca uma lista detalhada de todas as transações de gastos de um usuário.
- */
 async function buscarGastosDetalhados(chatId) {
-  // CORREÇÃO: Removemos o 'chatId = CHAT_ID_FIXO;'
-  const response = await notion.databases.query({
-    database_id: DATABASE_ID,
-    filter: {
-      and: [
-        {
-          property: 'Telegram User ID',
-          number: { equals: chatId }
-        },
-        { // OTIMIZAÇÃO: Filtro para pegar apenas entradas de gastos.
-          property: 'Valor', 
-          number: { is_not_empty: true }
-        }
-      ]
-    },
-    sorts: [ // OTIMIZAÇÃO: Ordena os gastos do mais recente para o mais antigo (bom para a IA).
-      {
-        property: 'Data do Gasto',
-        direction: 'descending'
-      }
-    ]
-  });
+  let gastos = [];
+  if (USA_QUERY_MODERNO) {
+    // --- VERSÃO NOVA (ideal) ---
+    console.log(`[LOG] Executando buscarGastosDetalhados (ChatID: ${chatId}) via notion.databases.query() [MODERNO]`);
+    const response = await notion.databases.query({
+      database_id: DATABASE_ID,
+      filter: { and: [
+          { property: 'Telegram User ID', number: { equals: chatId } },
+          { property: 'Valor', number: { is_not_empty: true } }
+      ]},
+      sorts: [{ property: 'Data do Gasto', direction: 'descending' }]
+    });
+    gastos = response.results;
+  } else {
+    // --- VERSÃO ANTIGA (fallback) ---
+     console.log(`[LOG] Executando buscarGastosDetalhados (ChatID: ${chatId}) via notion.search() [FALLBACK]`);
+    const response = await notion.search({ filter: { property: 'object', value: 'page' } });
+    gastos = response.results.filter(p => {
+        const props = p.properties || {};
+        return props['Telegram User ID']?.number === chatId &&
+               props['Valor']?.number !== undefined;
+    });
+    gastos.sort((a, b) => new Date(b.properties['Data do Gasto']?.date?.start || 0) - new Date(a.properties['Data do Gasto']?.date?.start || 0));
+  }
 
-  // Extrai e formata os dados relevantes
-  return response.results.map(gasto => {
+  return gastos.map(gasto => {
     const props = gasto.properties;
     return {
       descricao: props['Descrição']?.rich_text?.[0]?.text?.content || '',
       valor: props['Valor']?.number || 0,
-      tipoPagamento: props['Tipo de Pagamento']?.select?.name || 'Outro',
-      categoria: props['Categoria']?.select?.name || 'Outro',
+      tipoPagamento: props['Tipo de Pagamento']?.select?.name || '',
+      categoria: props['Categoria']?.select?.name || '',
       data: props['Data do Gasto']?.date?.start || ''
     };
   });
 }
 
-// (Função 'atualizarDadoNotion' mantida caso você a use no futuro)
 async function atualizarDadoNotion(chatId, campo, valor) {
-  const response = await notion.databases.query({
-    database_id: DATABASE_ID,
-    filter: {
-      property: 'Telegram User ID',
-      number: { equals: chatId }
-    }
-  });
-  const page = response.results[0];
-  if (!page) throw new Error('Usuário não encontrado no Notion para atualizar.');
-  
-  await notion.pages.update({
-    page_id: page.id,
-    properties: {
-      [campo]: isNaN(Number(valor)) ? { rich_text: [{ text: { content: valor } }] } : { number: Number(valor) }
-    }
-  });
+    // ... seu código original ...
 }
 
 module.exports = {
