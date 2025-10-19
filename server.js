@@ -5,6 +5,7 @@ const { handleOnboarding } = require('./onboarding');
 const { handleGasto, handleResumoGastos, handleGrafico } = require('./gastos');
 const { handlePerguntaIA } = require('./ia');
 const bodyParser = require('body-parser');
+const { buscarDadosUsuarioNotion } = require('./notion');
 
 // Validação de variáveis de ambiente
 if (!process.env.TELEGRAM_TOKEN || !process.env.WEBHOOK_URL) {
