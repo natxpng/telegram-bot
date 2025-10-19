@@ -2,16 +2,14 @@
 require('dotenv').config();
 const { Client } = require("@notionhq/client");
 
-// Validação de variáveis de ambiente
 if (!process.env.NOTION_API_KEY || !process.env.NOTION_DATABASE_ID) {
-  console.error("[NOTION] ERRO: NOTION_API_KEY ou NOTION_DATABASE_ID não estão definidos no seu arquivo .env!");
-  process.exit(1); // Encerra a aplicação se as chaves não existirem
+  console.error("[NOTION] ERRO: NOTION_API_KEY ou NOTION_DATABASE_ID não estão definidos!");
+  process.exit(1);
 }
 
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
 const DATABASE_ID = process.env.NOTION_DATABASE_ID;
-
-console.log('[NOTION] Client Notion instanciado com sucesso.');
+console.log('[NOTION] Client Notion instanciado.');
 
 // <-- MUDANÇA: Removido o CHAT_ID_FIXO que causava o bug principal.
 
@@ -36,122 +34,127 @@ async function salvarTriagemNotion({ chatId, nome, renda, fixos, variaveis, poup
  * Busca a página de perfil de um usuário específico.
  */
 async function buscarDadosUsuarioNotion(chatId) {
-  const response = await notion.databases.query({
-    database_id: DATABASE_ID,
-    filter: {
-      and: [
-        {
-          property: 'Telegram User ID',
-          number: { equals: chatId }
-        },
-        { // <-- MUDANÇA: Garante que estamos pegando a página de perfil, não um gasto.
-          property: 'Renda Mensal',
-          number: { is_not_empty: true }
-        }
-      ]
-    }
-  });
-  return response.results[0]?.properties || null;
+  // chatId = CHAT_ID_FIXO; // <-- REMOVIDO!
+  
+  if (!notion.databases.query) {
+    // --- VERSÃO ANTIGA (fallback) ---
+    console.log('[NOTION] Usando fallback notion.search() para buscarDadosUsuarioNotion');
+    const response = await notion.search({
+      filter: { property: 'object', value: 'page' }
+    });
+    const page = response.results.find(p => {
+      const props = p.properties || {};
+      return props['Telegram User ID']?.number === chatId &&
+             props['Renda Mensal']?.number !== undefined; // Diferencia de um gasto
+    });
+    return page?.properties || null;
+  } else {
+    // --- VERSÃO NOVA (ideal) ---
+    const response = await notion.databases.query({
+      database_id: DATABASE_ID,
+      filter: {
+        and: [
+          { property: 'Telegram User ID', number: { equals: chatId } },
+          { property: 'Renda Mensal', number: { is_not_empty: true } }
+        ]
+      }
+    });
+    return response.results[0]?.properties || null;
+  }
 }
 
-/**
- * Salva uma nova transação de gasto no Notion.
- */
-async function salvarGastoNotion({ chatId, nome, data, descricao, valor, tipoPagamento, categoria }) {
-  await notion.pages.create({
-    parent: { database_id: DATABASE_ID },
-    properties: {
-      "Nome do Usuário": { title: [{ text: { content: nome || '' } }] },
-      "Telegram User ID": { number: chatId },
-      "Data do Gasto": { date: { start: data } },
-      "Descrição": { rich_text: [{ text: { content: descricao || '' } }] },
-      "Valor": { number: valor },
-      "Tipo de Pagamento": { select: { name: tipoPagamento || 'Outro' } },
-      "Categoria": { select: { name: categoria || 'Outro' } }
-      // Outros campos como "Cartão de Crédito", "Parcelado?" podem ser adicionados aqui se necessário.
-    }
-  });
-}
-
-/**
- * Busca todos os gastos de um usuário e agrupa os totais por categoria.
- */
 async function buscarGastosPorCategoria(chatId) {
-  const response = await notion.databases.query({
-    database_id: DATABASE_ID,
-    filter: {
-      and: [
-        {
-          property: 'Telegram User ID',
-          number: { equals: chatId }
-        },
-        { // <-- MUDANÇA: Filtro para pegar apenas entradas de gastos, não a página de perfil.
-          property: 'Valor',
-          number: { is_not_empty: true }
-        }
-      ]
-    }
-  });
+  // chatId = CHAT_ID_FIXO; // <-- REMOVIDO!
+  let gastos = [];
 
-  const gastos = response.results;
+  if (!notion.databases.query) {
+    // --- VERSÃO ANTIGA (fallback) ---
+    console.log('[NOTION] Usando fallback notion.search() para buscarGastosPorCategoria');
+    const response = await notion.search({ filter: { property: 'object', value: 'page' } });
+    gastos = response.results.filter(p => {
+        const props = p.properties || {};
+        return props['Telegram User ID']?.number === chatId &&
+               props['Valor']?.number !== undefined; // Diferencia do perfil
+    });
+  } else {
+    // --- VERSÃO NOVA (ideal) ---
+    const response = await notion.databases.query({
+      database_id: DATABASE_ID,
+      filter: {
+        and: [
+          { property: 'Telegram User ID', number: { equals: chatId } },
+          { property: 'Valor', number: { is_not_empty: true } }
+        ]
+      }
+    });
+    gastos = response.results;
+  }
+
+  console.log('[buscarGastosPorCategoria] Gastos encontrados:', gastos.length);
   const categorias = {};
-
   for (const gasto of gastos) {
     const props = gasto.properties;
     let categoria = props['Categoria']?.select?.name?.trim() || 'Outro';
     const valor = props['Valor']?.number || 0;
     categorias[categoria] = (categorias[categoria] || 0) + valor;
   }
-  
   return categorias;
 }
 
-/**
- * Busca uma lista detalhada de todas as transações de gastos de um usuário.
- */
 async function buscarGastosDetalhados(chatId) {
-  const response = await notion.databases.query({
-    database_id: DATABASE_ID,
-    filter: {
-      and: [
-        {
-          property: 'Telegram User ID',
-          number: { equals: chatId }
-        },
-        { // <-- MUDANÇA: Filtro para pegar apenas entradas de gastos.
-          property: 'Valor', 
-          number: { is_not_empty: true }
-        }
-      ]
-    },
-    sorts: [ // <-- MUDANÇA: Ordena os gastos do mais recente para o mais antigo.
-      {
-        property: 'Data do Gasto',
-        direction: 'descending'
-      }
-    ]
-  });
+  // chatId = CHAT_ID_FIXO; // <-- REMOVIDO!
+  let gastos = [];
 
-  // Extrai e formata os dados relevantes
-  return response.results.map(gasto => {
+  if (!notion.databases.query) {
+    // --- VERSÃO ANTIGA (fallback) ---
+     console.log('[NOTION] Usando fallback notion.search() para buscarGastosDetalhados');
+    const response = await notion.search({ filter: { property: 'object', value: 'page' } });
+    gastos = response.results.filter(p => {
+        const props = p.properties || {};
+        return props['Telegram User ID']?.number === chatId &&
+               props['Valor']?.number !== undefined;
+    });
+    // Ordenação manual (search não suporta sorts)
+    gastos.sort((a, b) => {
+        const dateA = new Date(a.properties['Data do Gasto']?.date?.start || 0);
+        const dateB = new Date(b.properties['Data do Gasto']?.date?.start || 0);
+        return dateB - dateA; // Mais recente primeiro
+    });
+
+  } else {
+    // --- VERSÃO NOVA (ideal) ---
+    const response = await notion.databases.query({
+      database_id: DATABASE_ID,
+      filter: {
+        and: [
+          { property: 'Telegram User ID', number: { equals: chatId } },
+          { property: 'Valor', number: { is_not_empty: true } }
+        ]
+      },
+      sorts: [{ property: 'Data do Gasto', direction: 'descending' }]
+    });
+    gastos = response.results;
+  }
+
+  return gastos.map(gasto => {
     const props = gasto.properties;
     return {
       descricao: props['Descrição']?.rich_text?.[0]?.text?.content || '',
       valor: props['Valor']?.number || 0,
-      tipoPagamento: props['Tipo de Pagamento']?.select?.name || 'Outro',
-      categoria: props['Categoria']?.select?.name || 'Outro',
+      tipoPagamento: props['Tipo de Pagamento']?.select?.name || '',
+      categoria: props['Categoria']?.select?.name || '',
       data: props['Data do Gasto']?.date?.start || ''
     };
   });
 }
 
-// <-- MUDANÇA: As funções 'atualizarDadoNotion' e 'gerarGraficoBarrasGastos' foram removidas
-// para simplificar o código, pois não estavam sendo usadas ou foram substituídas.
-
+// Removi 'atualizarDadoNotion' e 'gerarGraficoBarrasGastos' que não estavam sendo usados
 module.exports = {
   salvarTriagemNotion,
+  // atualizarDadoNotion, // Descomente se for usar
   buscarDadosUsuarioNotion,
   salvarGastoNotion,
+  // gerarGraficoBarrasGastos, // Descomente se for usar
   buscarGastosDetalhados,
   buscarGastosPorCategoria
 };
