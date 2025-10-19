@@ -2,6 +2,13 @@
 require('dotenv').config();
 const { Client } = require("@notionhq/client");
 
+console.log(`[DIAGNÓSTICO] Versão do Node.js em execução: ${process.version}`);
+try {
+  const notionClientPath = require.resolve('@notionhq/client');
+  console.log(`[DIAGNÓSTICO] Pacote @notionhq/client encontrado em: ${notionClientPath}`);
+} catch (e) {
+  console.error('[DIAGNÓSTICO] ERRO: Pacote @notionhq/client não foi encontrado!');
+}
 // Validação de variáveis de ambiente
 if (!process.env.NOTION_API_KEY || !process.env.NOTION_DATABASE_ID) {
   console.error("[NOTION] ERRO: NOTION_API_KEY ou NOTION_DATABASE_ID não estão definidos no seu arquivo .env!");
