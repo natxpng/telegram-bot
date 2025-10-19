@@ -163,11 +163,40 @@ async function atualizarDadoNotion(chatId, campo, valor) {
     // ... seu código original ...
 }
 
+async function gerarResumoFinanceiro(chatId) {
+  // buscarGastosDetalhados já retorna os gastos ordenados por data
+  const gastos = await buscarGastosDetalhados(chatId);
+  if (!gastos) {
+    return { totalGastoMesAtual: 0, categoriasMesAtual: {} };
+  }
+  
+  const hoje = new Date();
+  const primeiroDiaMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+
+  let totalGastoMesAtual = 0;
+  const categoriasMesAtual = {};
+
+  for (const gasto of gastos) {
+    // A data do gasto vem como string 'YYYY-MM-DD'
+    const dataGasto = new Date(gasto.data);
+    
+    // Compara apenas gastos feitos neste mês
+    if (dataGasto >= primeiroDiaMes) {
+      totalGastoMesAtual += gasto.valor;
+      const categoria = gasto.categoria || 'Outro';
+      categoriasMesAtual[categoria] = (categoriasMesAtual[categoria] || 0) + gasto.valor;
+    }
+  }
+
+  return { totalGastoMesAtual, categoriasMesAtual };
+}
+
 module.exports = {
   salvarTriagemNotion,
   atualizarDadoNotion,
   buscarDadosUsuarioNotion,
   salvarGastoNotion,
   buscarGastosDetalhados,
-  buscarGastosPorCategoria
+  buscarGastosPorCategoria,
+  gerarResumoFinanceiro
 };
