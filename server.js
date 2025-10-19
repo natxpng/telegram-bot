@@ -38,32 +38,37 @@ app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
 });
 
 // Handler principal de mensagens
+// Handler principal de mensagens
 bot.on('message', async (msg) => {
-  // Evita processar mensagens sem texto (ex: fotos, stickers)
+  // Evita processar mensagens sem texto
   if (!msg.text) {
-    bot.sendMessage(msg.chat.id, "Desculpe, eu só consigo processar mensagens de texto no momento.");
+    bot.sendMessage(msg.chat.id, "Desculpe, eu só consigo processar mensagens de texto.");
     return;
   }
 
   const chatId = msg.chat.id;
   const texto = msg.text.trim();
 
-  // Se for /start, força o onboarding
-  if (texto === '/start') {
-    await handleOnboarding(bot, chatId, texto);
-    return;
-  }
+  // 1. Busca no Notion para saber se o usuário já existe
+  const dadosUsuario = await buscarDadosUsuarioNotion(chatId);
 
-  // --- Lógica principal ---
-  // Tenta lidar com o onboarding (se o usuário não terminou)
-  if (await handleOnboarding(bot, chatId, texto)) return;
+  // 2. Tenta rodar o onboarding. 
+  // O handleOnboarding agora é inteligente. Ele vai:
+  // - Iniciar se for /start
+  // - Continuar se estiver no meio do processo
+  // - Pedir /start se for um usuário 100% novo
+  // - Retornar 'false' se o usuário já estiver cadastrado e não estiver no onboarding
+  if (await handleOnboarding(bot, chatId, texto, dadosUsuario)) {
+    return; // Mensagem foi tratada pelo onboarding
+  }
   
-  // Se não for onboarding, tenta lidar com comandos
+  // 3. Se o usuário já fez onboarding (onboarding retornou false), 
+  // processa os comandos normais.
   if (await handleGasto(bot, chatId, texto)) return;
   if (await handleResumoGastos(bot, chatId, texto)) return;
   if (await handleGrafico(bot, chatId, texto)) return;
   
-  // Se não for nenhum comando, manda para a IA
+  // 4. Se não for nenhum comando, manda para a IA
   await handlePerguntaIA(bot, chatId, texto);
 });
 
