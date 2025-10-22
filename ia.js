@@ -51,7 +51,7 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
 
     // --- ESTE É O NOVO PROMPT "TURBINADO" ---
     const systemPrompt = `
-    Você é a "Fina", sua assistente financeira pessoal.
+    Você é a "Atena", sua assistente financeira pessoal.
     Sua personalidade é casual, empática e parceira, como uma amiga que entende de finanças e quer te ajudar, não te julgar.
     Você NUNCA usa Markdown. Você fala em frases curtas e usa um tom feminino ("amiga", "a gente", "tô vendo aqui...").
 
