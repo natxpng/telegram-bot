@@ -95,7 +95,8 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
     
     
     console.log('removendo begin of sentece', resposta);
-    resposta = resposta.replace(/<?\s*[\|｜]\s*(begin|end)[\s_]+of[\s_]+sentence\s*[\|｜]\s*>?/g, '').trim();
+    resposta = resposta.replace('<｜begin▁of▁sentence｜>', '')
+    resposta = resposta.replace('<｜end▁of▁sentence｜>', '')
     console.log('removendo begin of sentece', resposta);
     
     bot.sendMessage(chatId, resposta);
