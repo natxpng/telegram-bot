@@ -93,11 +93,8 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
 
     let resposta = respostaIA.data.choices?.[0]?.message?.content || "Desculpe, não consegui responder.";
     
-    
-    console.log('removendo begin of sentece', resposta);
     resposta = resposta.replace('<｜begin▁of▁sentence｜>', '')
     resposta = resposta.replace('<｜end▁of▁sentence｜>', '')
-    console.log('removendo begin of sentece', resposta);
     
     bot.sendMessage(chatId, resposta);
     return true;
