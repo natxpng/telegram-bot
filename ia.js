@@ -94,8 +94,8 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
     let resposta = respostaIA.data.choices?.[0]?.message?.content || "Desculpe, não consegui responder.";
     
     // SUBSTITUA AS LINHAS DE .replace ANTIGAS POR ESTA:
-    // LINHA CORRIGIDA
-    resposta = resposta.replace(/\s*[\|｜]\s*(begin|end)[\s_]+of[\s_]+sentence\s*[\|｜]/g, '').trim();
+    // LINHA CORRIGIDA// LINHA CORRIGIDA (VERSÃO 2)
+    resposta = resposta.replace(/<?\s*[\|｜]\s*(begin|end)[\s_]+of[\s_]+sentence\s*[\|｜]\s*>?/g, '').trim();
     bot.sendMessage(chatId, resposta);
     return true;
 
