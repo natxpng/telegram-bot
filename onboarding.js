@@ -32,7 +32,7 @@ async function handleOnboarding(bot, chatId, texto) {
 
   // 1. Comando /start (inicia ou reinicia o processo)
   if (texto === '/start') {
-    bot.sendMessage(chatId, "Olá! Sou seu assistente financeiro. Vamos começar (ou recomeçar) seu cadastro com 5 perguntas rápidas.");
+    bot.sendMessage(chatId, "Olá! Sou a Atena, sua assistente financeira. Vamos começar (ou recomeçar) seu cadastro com 5 perguntas rápidas.");
     usuariosEmOnboarding[chatId] = { etapa: 0, respostas: [] };
     bot.sendMessage(chatId, perguntasOnboarding[0]);
     return;
