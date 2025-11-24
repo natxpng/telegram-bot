@@ -4,10 +4,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const bodyParser = require('body-parser');
 
 // Imports dos Handlers (Funções)
-const { buscarDadosUsuarioNotion } = require('./notion');
-const { handleOnboarding, isOnboardingProcess } = require('./onboarding');
-const { handleGasto, handleResumoGastos, handleGrafico } = require('./gastos');
-const { handlePerguntaIA } = require('./ia');
+const { handleGasto, handleResumoGastos } = require('./gastos');
 
 // Validação de variáveis de ambiente
 if (!process.env.TELEGRAM_TOKEN || !process.env.WEBHOOK_URL) {
@@ -37,49 +34,33 @@ app.post(`/bot${TELEGRAM_TOKEN}`, (req, res) => {
   res.sendStatus(200);
 });
 
-// --- O NOVO HANDLER DE MENSAGENS ---
+// --- NOVO HANDLER DE MENSAGENS SIMPLIFICADO ---
+let nomesUsuarios = {};
 bot.on('message', async (msg) => {
-  if (!msg.text) return; // Ignora stickers, fotos, etc.
-
+  if (!msg.text) return;
   const chatId = msg.chat.id;
   const texto = msg.text.trim();
 
-  // 1. O usuário está iniciando ou no MEIO do onboarding?
-  // (isOnboardingProcess checa se o chatId está na memória temporária)
-  if (texto === '/start' || isOnboardingProcess(chatId)) {
-    await handleOnboarding(bot, chatId, texto); // Deixa o onboarding.js tomar conta
+  // Pergunta o nome se não tiver salvo
+  if (!nomesUsuarios[chatId]) {
+    bot.sendMessage(chatId, 'Olá! Qual seu nome?');
+    nomesUsuarios[chatId] = { aguardandoNome: true };
+    return;
+  }
+  if (nomesUsuarios[chatId].aguardandoNome) {
+    nomesUsuarios[chatId] = { nome: texto };
+    bot.sendMessage(chatId, `Prazer, ${texto}! Pode registrar seus gastos normalmente.`);
     return;
   }
 
-  // --- Se chegou aqui, o usuário NÃO está no onboarding ---
+  // Registro de gastos
+  if (await handleGasto(bot, chatId, texto, nomesUsuarios[chatId].nome)) return;
 
-  // 2. CHECA SE O USUÁRIO EXISTE (O "check" que você pediu)
-  const dadosUsuario = await buscarDadosUsuarioNotion(chatId);
+  // Resumo mensal ou semanal
+  if (await handleResumoGastos(bot, chatId, texto)) return;
 
-  // 3. SE O USUÁRIO EXISTE (conhecido)
-  if (dadosUsuario) {
-    // Passamos 'dadosUsuario' para evitar novas buscas no Notion
-    if (await handleGasto(bot, chatId, texto, dadosUsuario)) return;
-    if (await handleResumoGastos(bot, chatId, texto)) return;
-    if (await handleGrafico(bot, chatId, texto)) return;
-    
-    // Se não for nenhum comando, manda para a IA (com contexto)
-    await handlePerguntaIA(bot, chatId, texto, dadosUsuario);
-  
-  } else {
-  // 4. SE O USUÁRIO NÃO EXISTE (novo) e NÃO digitou /start
-
-    // Bloqueia comandos que precisam de cadastro
-    if (await handleGasto(bot, chatId, texto, null)) return; 
-    
-    // Permite comandos que podem funcionar sem cadastro
-    if (await handleResumoGastos(bot, chatId, texto)) return; // Vai mostrar R$ 0
-    if (await handleGrafico(bot, chatId, texto)) return; // Vai mostrar gráfico vazio
-
-    // Manda para a IA (sem contexto) - "O que deseja?"
-    // A IA vai responder perguntas gerais sobre finanças
-    await handlePerguntaIA(bot, chatId, texto, null);
-  }
+  // Se não for nenhum comando conhecido
+  bot.sendMessage(chatId, 'Comando não reconhecido. Para registrar um gasto, digite algo como "gastei 50 no mercado". Para resumo, use /gastos ou /gastos semana.');
 });
 
 // Inicia o servidor

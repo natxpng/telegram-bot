@@ -1,21 +1,19 @@
 require('dotenv').config();
 const { salvarGastoNotion, buscarGastosDetalhados } = require('./notion');
-const { gerarGraficoBonito } = require('./grafico');
 const { categorizarGasto } = require('./ia');
 
 /**
  * Lida com o registro de um novo gasto.
- * Agora recebe 'dadosUsuario' do server.js
+ * Recebe 'nome' (string) do server.js
  */
-async function handleGasto(bot, chatId, texto, dadosUsuario) {
+async function handleGasto(bot, chatId, texto, nome) {
   const regexGasto = /(comprei|gastei|paguei|usei|passei|enviei|transferi|paguei)\s*(.*?)(no cartão|no dinheiro|no pix|no débito|no crédito)?\s*(por|de|=)?\s*(\d+[,.]?\d*)/i;
   const match = texto.match(regexGasto);
 
   if (match) {
-    // MUDANÇA: Checa se o usuário está cadastrado
-    if (!dadosUsuario) {
-      bot.sendMessage(chatId, "Para registrar um gasto, você precisa primeiro se cadastrar. Digite /start para começar.");
-      return true; // Mensagem tratada
+    // Checa se o nome foi fornecido (indicador de onboarding completo)
+    if (!nome) {
+      return false; // Deixa para o server.js pedir o nome
     }
 
     bot.sendChatAction(chatId, 'typing');
@@ -24,11 +22,8 @@ async function handleGasto(bot, chatId, texto, dadosUsuario) {
     const tipoPagamento = match[3]?.replace('no ', '')?.trim() || 'Outro';
     const data = new Date().toISOString().split('T')[0];
 
-    // Usa o nome que já veio do server.js
-    const nome = dadosUsuario['Nome do Usuário']?.title?.[0]?.text?.content || 'Usuário';
+    const categoria = await categorizarGasto(descricao);
 
-    const categoria = await categorizarGasto(descricao); 
-    
     await salvarGastoNotion({
       chatId, nome, data, descricao, valor, tipoPagamento, categoria
     });
@@ -42,34 +37,75 @@ async function handleGasto(bot, chatId, texto, dadosUsuario) {
 /**
  * Lida com o comando /gastos para resumir o total.
  */
-async function handleResumoGastos(bot, chatId, texto) {
-  if (texto === '/gastos') {
-    bot.sendChatAction(chatId, 'typing');
-    const gastosDetalhados = await buscarGastosDetalhados(chatId);
-    const total = (gastosDetalhados || []).reduce((acc, g) => acc + (g.valor || 0), 0);
-    
-    bot.sendMessage(chatId, `Total de gastos registrados: R$ ${total.toFixed(2)}`);
+async function handlePerguntaGastos(bot, chatId, texto) {
+  const txt = texto.toLowerCase();
+  const perguntasSemana = [
+    'gastos da semana',
+    'meus gastos da semana',
+    'gastei essa semana',
+    'gastos semanais'
+  ];
+  const perguntasMes = [
+    'gastos do mês',
+    'meus gastos do mês',
+    'gastei este mês',
+    'gastos mensais'
+  ];
+  const perguntasGeral = [
+    'com o que já gastei',
+    'em que já gastei',
+    'meus gastos',
+    'o que já gastei',
+    'listar gastos'
+  ];
+
+  const gastosDetalhados = await buscarGastosDetalhados(chatId);
+  if (!Array.isArray(gastosDetalhados) || gastosDetalhados.length === 0) {
+    bot.sendMessage(chatId, 'Você ainda não registrou nenhum gasto.');
+    return true;
+  }
+
+  if (perguntasSemana.some(p => txt.includes(p))) {
+    const hoje = new Date();
+    const primeiroDiaSemana = new Date(hoje);
+    primeiroDiaSemana.setDate(hoje.getDate() - hoje.getDay());
+    const gastosSemana = gastosDetalhados.filter(g => new Date(g.data) >= primeiroDiaSemana);
+    if (gastosSemana.length === 0) {
+      bot.sendMessage(chatId, 'Você não teve gastos registrados nesta semana.');
+      return true;
+    }
+    const lista = gastosSemana.map(g => `- ${g.data}: ${g.descricao} (R$ ${g.valor.toFixed(2)})`).join('\n');
+    bot.sendMessage(chatId, `Seus gastos da semana:\n${lista}`);
+    return true;
+  }
+
+  if (perguntasMes.some(p => txt.includes(p))) {
+    const hoje = new Date();
+    const primeiroDiaMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const gastosMes = gastosDetalhados.filter(g => new Date(g.data) >= primeiroDiaMes);
+    if (gastosMes.length === 0) {
+      bot.sendMessage(chatId, 'Você não teve gastos registrados neste mês.');
+      return true;
+    }
+    const lista = gastosMes.map(g => `- ${g.data}: ${g.descricao} (R$ ${g.valor.toFixed(2)})`).join('\n');
+    bot.sendMessage(chatId, `Seus gastos do mês:\n${lista}`);
+    return true;
+  }
+
+  if (perguntasGeral.some(p => txt.includes(p))) {
+    const lista = gastosDetalhados.map(g => `- ${g.data}: ${g.descricao} (R$ ${g.valor.toFixed(2)})`).join('\n');
+    bot.sendMessage(chatId, `Seus gastos registrados:\n${lista}`);
     return true;
   }
   return false;
 }
 
 /**
- * Lida com o comando /grafico.
+ * Wrapper que redireciona para handlePerguntaGastos
+ * (mantém compatibilidade com o novo server.js)
  */
-async function handleGrafico(bot, chatId, texto) {
-  if (texto === '/grafico') {
-    bot.sendMessage(chatId, 'Gerando gráfico, aguarde...');
-    try {
-      const imgBuffer = await gerarGraficoBonito(chatId);
-      await bot.sendPhoto(chatId, imgBuffer, { caption: 'Gastos por categoria' });
-    } catch (err) {
-      console.error('Erro ao gerar gráfico:', err);
-      bot.sendMessage(chatId, 'Não foi possível gerar o gráfico. Você já registrou algum gasto?');
-    }
-    return true;
-  }
-  return false;
+async function handleResumoGastos(bot, chatId, texto) {
+  return await handlePerguntaGastos(bot, chatId, texto);
 }
 
-module.exports = { handleGasto, handleResumoGastos, handleGrafico };
+module.exports = { handleGasto, handleResumoGastos, handlePerguntaGastos };
