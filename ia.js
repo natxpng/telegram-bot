@@ -3,46 +3,100 @@ const axios = require('axios');
 const { buscarGastosDetalhados, gerarResumoFinanceiro } = require('./notion');
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-// --- 1. SUA LISTA DE MODELOS ---
-const MODELOS_DISPONIVEIS = [
-// 1. MISTRAL NEMO: O "Segredo". Excelente em português, rápido e fila quase sempre vazia.
-  "openai/gpt-oss-120b:free"
-
+// --- 1. MODELOS OTIMIZADOS: prioridade + peso + timeout ---
+const MODELOS = [
+  {
+    name: "qwen/qwen2.5-7b-instruct:free",
+    priority: 1,
+    weight: 5,
+    timeout: 8000
+  },
+  {
+    name: "meta-llama/llama-3.1-8b-instruct:free",
+    priority: 2,
+    weight: 4,
+    timeout: 9000
+  },
+  {
+    name: "mistral/mistral-7b-instruct:free",
+    priority: 3,
+    weight: 3,
+    timeout: 9000
+  },
+  {
+    name: "google/gemini-flash-8b:free",
+    priority: 4,
+    weight: 2,
+    timeout: 7000
+  },
+  {
+    name: "openai/gpt-oss-120b:free",
+    priority: 5,
+    weight: 1,          // só se tudo falhar
+    timeout: 5000       // fila vive congestionada → timeout menor
+  }
 ];
 
 // --- 2. LISTA DE CATEGORIAS OFICIAIS ---
 const CATEGORIAS_VALIDAS = ['Alimentação', 'Transporte', 'Moradia', 'Lazer', 'Saúde', 'Educação', 'Compras', 'Dívidas', 'Outro'];
 
+function expandirPorPeso() {
+  const lista = [];
+  MODELOS.forEach(m => {
+    for (let i = 0; i < m.weight; i++) {
+      lista.push(m);
+    }
+  });
+  return lista.sort((a, b) => a.priority - b.priority);
+}
+
+// --- 3. FUNÇÃO PRINCIPAL: TIMEOUT INTELIGENTE + FALLBACK ---
 async function chamarOpenRouter(messages, jsonMode = false) {
-  let lastError = null;
-  for (const model of MODELOS_DISPONIVEIS) {
+  const modelosOrdenados = expandirPorPeso();
+  let erroFinal = null;
+
+  for (const modelo of modelosOrdenados) {
     try {
-      console.log(`[DEBUG IA] Tentando modelo: ${model}`); // LOG DE CONEXÃO
-      
-      const payload = { model: model, messages: messages };
-      
-      if (jsonMode && model.includes('gemini')) {
+      console.log(`[IA] Tentando modelo: ${modelo.name} | timeout=${modelo.timeout}ms`);
+
+      const payload = {
+        model: modelo.name,
+        messages
+      };
+
+      // JSON mode ativado só pro Gemini (se você quiser expandir pra Llama depois, me avise)
+      if (jsonMode && modelo.name.includes("gemini")) {
         payload.response_format = { type: "json_object" };
       }
 
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', payload, {
-        headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://telegram-bot.com',
-          'X-Title': 'FinanceBot'
-        },
-        timeout: 60000 
-      });
-      return response.data.choices?.[0]?.message?.content; 
-    } catch (error) {
-      console.warn(`[DEBUG IA] Falha no modelo ${model}: ${error.message}`);
-      lastError = error;
+      const resp = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        payload,
+        {
+          headers: {
+            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://telegram-bot.com',
+            'X-Title': 'FinanceBot'
+          },
+          timeout: modelo.timeout
+        }
+      );
+
+      const conteudo = resp.data.choices?.[0]?.message?.content;
+      if (!conteudo) throw new Error("Resposta vazia da IA");
+
+      console.log(`[IA] Modelo OK: ${modelo.name}`);
+      return conteudo;
+
+    } catch (err) {
+      erroFinal = err;
+      console.warn(`[IA] Falha no modelo ${modelo.name}: ${err.message}`);
     }
   }
-  throw lastError;
-}
 
+  throw erroFinal;
+}
 /**
  * ATENA: PERSONALIDADE + ESTRATÉGIA
  */
