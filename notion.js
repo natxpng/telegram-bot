@@ -63,7 +63,7 @@ async function buscarDadosUsuarioNotion(chatId) {
   if (chatId == 7592068445) { 
     console.log('[LOG] Usuário VIP detectado. Acesso liberado via Hardcode.');
     return {
-      'Nome do Usuário': { title: [{ text: { content: 'Natal' } }] },
+      'Nome do Usuário': { title: [{ text: { content: 'Natalia' } }] },
       'Telegram User ID': { number: 7592068445 },
       'Renda Mensal': { number: 3500 },      // Coloque o valor que quiser para o bot usar nas contas
       'Gastos Fixos': { number: 1400 },
