@@ -5,20 +5,23 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 // --- 1. SUA LISTA DE MODELOS ---
 const MODELOS_DISPONIVEIS = [
-// TENTATIVA 1: Os "Gênios" (Podem estar cheios)
-  "tngtech/deepseek-r1t2-chimera:free",
-  "amazon/nova-2-lite-v1:free",
-  "qwen/qwen3-coder:free",
-  
-  // TENTATIVA 2: Os "Robustos" (Bons e geralmente estáveis)
-  "google/gemma-2-9b-it:free",
-  "meta-llama/llama-3.1-8b-instruct:free",
-  
-  // TENTATIVA 3: Os "Segredos" (Filas menores)
+// 1. MISTRAL NEMO: O "Segredo". Excelente em português, rápido e fila quase sempre vazia.
   "mistralai/mistral-nemo:free",
+
+  // 2. GEMMA 2 9B: É do Google, mas menos famoso que o Gemini. A infraestrutura aguenta tudo.
+  "google/gemma-2-9b-it:free",
+
+  // 3. ZEPHYR 7B: Um modelo mais antigo que caiu em desuso, logo, está sempre livre.
   "huggingfaceh4/zephyr-7b-beta:free",
-  "microsoft/phi-3-medium-128k-instruct:free", // Esse quase nunca cai
-  "liquid/lfm-40b:free"   
+
+  // 4. PHI 3 (Microsoft): Modelo leve e muito rápido.
+  "microsoft/phi-3-medium-128k-instruct:free",
+
+  // 5. LLAMA 3.1: Bom, mas muito popular. Fica aqui caso os de cima falhem.
+  "meta-llama/llama-3.1-8b-instruct:free",
+
+  // 6. GEMINI 2.0: O melhor, mas vive lotado. Deixamos por último como "tentativa de luxo".
+  "google/gemini-2.0-flash-exp:free"  
 ];
 
 // --- 2. LISTA DE CATEGORIAS OFICIAIS ---
