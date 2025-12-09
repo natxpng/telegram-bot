@@ -1,42 +1,31 @@
 require('dotenv').config();
 const axios = require('axios');
-// ADICIONA A NOVA FUNÇÃO DE RESUMO
 const { buscarGastosDetalhados, gerarResumoFinanceiro } = require('./notion');
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 /**
- * Processa uma pergunta de formato livre do usuário usando a IA.
- * Agora recebe 'dadosUsuario' do server.js
+ * Processa uma pergunta de formato livre do usuário (Chatbot).
  */
 async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
   bot.sendChatAction(chatId, 'typing');
   try {
-    // --- NOVOS DADOS ---
-    // Busca o resumo financeiro e os gastos detalhados
     const resumoFinanceiro = await gerarResumoFinanceiro(chatId);
     const gastosDetalhados = await buscarGastosDetalhados(chatId); 
-    // ---------------------
-
-    // 2. CRIE O CONTEXTO DE DADOS
+    
     let contextoDados = "## Contexto do Usuário ##\n";
     
     if (dadosUsuario) {
-      // Usuário cadastrado, monta o contexto completo
       const renda = dadosUsuario['Renda Mensal']?.number || 0;
       const metaPoupanca = dadosUsuario['Meta de Poupança']?.number || 0;
       const gastosFixos = dadosUsuario['Gastos Fixos']?.number || 0;
       
       contextoDados += `Nome: ${dadosUsuario['Nome do Usuário']?.title?.[0]?.text?.content || 'Usuário'}\n`;
       contextoDados += `Renda Mensal: R$ ${renda.toFixed(2)}\n`;
-      contextoDados += `Gastos Fixos: R$ ${gastosFixos.toFixed(2)}\n`;
-      contextoDados += `Meta de Poupança Mensal: R$ ${metaPoupanca.toFixed(2)}\n`;
       contextoDados += `\n## Situação Mês Atual ##\n`;
       contextoDados += `Total Gasto no Mês (Variáveis): R$ ${resumoFinanceiro.totalGastoMesAtual.toFixed(2)}\n`;
-      contextoDados += `Gastos por Categoria (Mês Atual): ${JSON.stringify(resumoFinanceiro.categoriasMesAtual)}\n`;
-
-      // Calcula o "dinheiro sobrando"
+      
       const disponivelEsteMes = renda - gastosFixos - resumoFinanceiro.totalGastoMesAtual - metaPoupanca;
-      contextoDados += `Dinheiro Disponível (Renda - Fixos - Variáveis - Meta Poupança): R$ ${disponivelEsteMes.toFixed(2)}\n`;
+      contextoDados += `Dinheiro Disponível Hoje: R$ ${disponivelEsteMes.toFixed(2)}\n`;
 
       if (gastosDetalhados && gastosDetalhados.length > 0) {
         contextoDados += "\nÚltimos 3 gastos registrados:\n";
@@ -45,44 +34,26 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
         });
       }
     } else {
-      // Usuário NOVO.
-      contextoDados = "O usuário ainda não finalizou o onboarding. Responda apenas à pergunta dele de forma geral, sem usar dados pessoais. Se ele perguntar sobre os gastos dele, diga que ele precisa se cadastrar com /start primeiro.";
+      contextoDados = "O usuário ainda não finalizou o onboarding.";
     }
 
-    // --- ESTE É O NOVO PROMPT "TURBINADO" ---
     const systemPrompt = `
-    Você é a "Atena", sua assistente financeira pessoal.
-    Sua personalidade é casual, empática e parceira, como uma amiga que entende de finanças e quer te ajudar, não te julgar.
-    Você NUNCA usa Markdown. Você fala em frases curtas e usa um tom feminino ("amiga", "a gente", "tô vendo aqui...").
+    Você é a "Atena", assistente financeira pessoal.
+    Personalidade: Amiga, casual, feminina e direta.
+    Objetivo: Ajudar a controlar gastos sem julgar.
+    
+    Contexto Atual:
+    ${contextoDados}
 
-    **Sua Missão:**
-    Dar a "real" sobre as finanças da usuária, mas de forma tranquila e construtiva. O objetivo é aconselhar, NUNCA dar bronca ou ser agressiva.
-
-    **Como Agir (OBRIGATÓRIO):**
-    1.  **Tom Feminino e Casual:** Fale como uma amiga. Evite termos masculinos como "amigo" ou "mano".
-    2.  **Use os Números (com empatia):** Seja específica, mas com calma.
-        * RUIM: "Isso é um gasto enorme. Não compre."
-        * BOM: "Oi, amiga! Vi que você quer gastar R$ 800. Dando uma olhada aqui, vi que você já está R$ 580 no vermelho este mês." 
-    3.  **Seja Criteriosa (mas não agressiva):** Mostre o impacto.
-        * RUIM: "Calma lá! Você vai se afundar!"
-        * BOM: "Se você comprar, seu negativo vai pra R$ 1380. Tenho receio que isso complique muito seu mês."
-    4.  **Analise Padrões (como uma amiga):**
-        * BOM: "Tô vendo aqui que você já gastou R$ 500 em 'Compras' este mês. Esse carrinho da Shein é prioridade mesmo agora?"
-    5.  **Sugira Alternativas (Importante!):** Sempre que desaconselhar, ofereça um plano B, como você sugeriu.
-        * BOM: "Com esse valor de R$ 800, fica pesado pra você arcar agora. Que tal a gente procurar em lojas mais baratas?"
-        * BOM: "Ou então, que tal esperar o mês que vem? Aí seu orçamento começa do zero e a gente se planeja pra isso."
-    6.  **Formato:** SEMPRE texto puro. NUNCA use tokens como "<|begin_of_sentence|>"  ou "<|end_of_sentence|>".
+    Se o usuário perguntar sobre gastos, use os dados acima.
+    Responda sempre em texto corrido, sem Markdown, sem negrito.
     `;
 
-    // 4. MONTE A CHAMADA
     const respostaIA = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
       model: "google/gemma-3-27b-it:free",
       messages: [
         { role: "system", content: systemPrompt },
-        { 
-          role: "user", 
-          content: `${contextoDados}\n\nPERGUNTA DO USUÁRIO:\n"${texto}"` 
-        }
+        { role: "user", content: texto }
       ]
     }, {
       headers: {
@@ -91,73 +62,77 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
       }
     });
 
-    let resposta = respostaIA.data.choices?.[0]?.message?.content || "Desculpe, não consegui responder.";
-    
-    resposta = resposta.replace('<｜begin▁of▁sentence｜>', '')
-    resposta = resposta.replace('<｜end▁of▁sentence｜>', '')
+    let resposta = respostaIA.data.choices?.[0]?.message?.content || "Desculpe, não entendi.";
+    // Limpeza de tokens de sistema que as vezes vazam
+    resposta = resposta.replace(/<.*?>/g, '').trim();
     
     bot.sendMessage(chatId, resposta);
     return true;
 
   } catch (error) {
-    console.error('Erro detalhado IA:', error?.response?.data || error);
-    bot.sendMessage(chatId, 'Ocorreu um erro ao tentar acessar a IA. Veja detalhes no log do servidor.');
+    console.error('Erro IA Chat:', error.message);
+    bot.sendMessage(chatId, 'Estou com um pouco de sono agora (Erro na IA). Tente já já.');
     return true;
   }
 }
 
 /**
- * Usa a IA para classificar a descrição de um gasto em uma categoria.
- * (Esta função não muda)
+ * NOVA FUNÇÃO PODEROSA: Extrai JSON estruturado do gasto.
+ * Resolve o problema de parcelas e categorias erradas.
  */
-async function categorizarGasto(descricao) {
+async function analisarGastoComIA(descricao) {
   const systemPrompt = `
-      Você é um assistente financeiro especializado em categorizar despesas.
-      Analise a descrição do usuário e classifique em UMA destas categorias:
-      [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
+      Você é um motor de processamento de despesas bancárias.
+      Sua tarefa é ler a frase do usuário e extrair um JSON estrito.
 
-      Regras de Negócio:
-      - Mercado, Feira, Ifood, Restaurante, Padaria -> Alimentação
-      - Uber, 99, Ônibus, Metrô, Gasolina, Estacionamento -> Transporte
-      - Aluguel, Condomínio, Luz, Internet, Manutenção casa -> Moradia
-      - Cinema, Teatro, Jogos, Streaming (Netflix/Spotify) -> Lazer
-      - Farmácia, Médico, Exames -> Saúde
-      - Curso, Faculdade, Livros -> Educação
+      Categorias permitidas: [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
+      Métodos permitidos: [Crédito, Débito, Pix, Dinheiro, Boleto, Outro]
 
-      Responda APENAS com o nome da categoria. Não use pontuação final.
+      Regras:
+      1. Se mencionar "x" ou "vezes" (ex: 3x, 3 vezes), extraia o número de parcelas.
+      2. Identifique o valor monetário.
+      3. Identifique o método (Uber/Ifood geralmente é Crédito se não especificado).
+      4. "Mercado", "Comida", "Lanche" -> Alimentação.
+      5. "Uber", "Gasolina", "99" -> Transporte.
+
+      Retorne APENAS o JSON neste formato:
+      {
+        "categoria": "String",
+        "valor": Number (use ponto para decimais, ex: 30.50),
+        "tipoPagamento": "String",
+        "parcelas": Number (padrao 1),
+        "descricao_formatada": "String (ex: Mercado Semanal)",
+        "is_gasto": Boolean (true se for um gasto, false se for conversa aleatória)
+      }
       `;
+
   try {
     const respostaIA = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: "google/gemma-3-27b-it:free",
+      // Usamos o Gemini 2.0 Flash pois ele obedece JSON melhor que o Gemma
+      model: "google/gemini-2.0-flash-exp:free", 
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Classifique este gasto: "${descricao}"` }
+        { role: "user", content: `Analise: "${descricao}"` }
       ],
-      temperature: 0, // 2. Temperatura Zero: Deixa a IA determinística (sem criatividade), essencial para classificação
+      response_format: { type: "json_object" } 
     }, {
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`, // Certifique-se de usar env var
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json'
       }
     });
 
-    let textoResposta = respostaIA.data.choices?.[0]?.message?.content || "";
+    let content = respostaIA.data.choices?.[0]?.message?.content;
+    // Limpeza garantida para JSON
+    content = content.replace(/```json/g, '').replace(/```/g, '').trim();
     
-    // 3. Validação Flexível (Sanitização)
-    // Em vez de verificar se é igual, verificamos se a resposta CONTÉM a categoria
-    const categoriasValidas = ['Alimentação', 'Transporte', 'Moradia', 'Lazer', 'Saúde', 'Educação', 'Compras', 'Dívidas', 'Outro'];
-    
-    // Procura qual categoria válida está presente no texto da resposta
-    const categoriaEncontrada = categoriasValidas.find(cat => 
-        new RegExp(cat, 'i').test(textoResposta) // 'i' ignora maiúsculas/minúsculas
-    );
-
-    return categoriaEncontrada || "Outro";
+    return JSON.parse(content);
 
   } catch (error) {
-    console.error('Erro ao categorizar:', error.message);
-    return 'Outro';
+    console.error('Erro ao analisar JSON do gasto:', error.message);
+    // Retorna um objeto de erro seguro
+    return { is_gasto: false };
   }
 }
 
-module.exports = { handlePerguntaIA, categorizarGasto };
+module.exports = { handlePerguntaIA, analisarGastoComIA };
