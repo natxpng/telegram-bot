@@ -6,6 +6,7 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 // --- 1. SUA LISTA DE MODELOS ---
 const MODELOS_DISPONIVEIS = [
 // TENTATIVA 1: Os "Gênios" (Podem estar cheios)
+  "tngtech/deepseek-r1t2-chimera:free",
   "google/gemini-2.0-flash-exp:free",
   "google/gemini-2.0-flash-thinking-exp:free",
   
