@@ -4,13 +4,28 @@ const { buscarGastosDetalhados, gerarResumoFinanceiro } = require('./notion');
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 const MODELOS_DISPONIVEIS = [
+// 1. O melhor de todos (Google). Fala português perfeito e entende contexto.
+  "google/gemini-2.0-flash-exp:free",      
+
+  // 2. A versão "Raciocínio" do Google (muito boa para conselhos).
+  "google/gemini-2.0-flash-thinking-exp:free",
+
+  // 3. O Llama 70B (versão grande). É muito mais inteligente que o 8B ou Nano.
+  "meta-llama/llama-3.3-70b-instruct:free", 
+  
+  // 4. Backup final (versão menor do Llama, mas ainda digna).
+  "meta-llama/llama-3.1-8b-instruct:free",
   // 1. QWEN 2.5 72B: O melhor "custo-benefício" do free. 
   // Português nativo excelente e costuma estar menos cheio que o Gemini.
   "qwen/qwen-2.5-72b-instruct:free", 
-
   // 2. MISTRAL NEMO 12B: Muito melhor que o "Nano". 
   // É leve, rápido e tem uma personalidade ótima para chat.
   "mistralai/mistral-nemo:free",
+  // 4. ZEPHYR 7B: Modelo mais antigo, mas muito estável e quase sempre livre.
+  "huggingfaceh4/zephyr-7b-beta:free",
+  
+  // 5. LIQUID LFM 40B: Modelo novo, pouca gente usa, costuma estar livre.
+  "liquid/lfm-40b:free"
 ];
 
 async function chamarOpenRouter(messages, jsonMode = false) {
@@ -28,7 +43,7 @@ async function chamarOpenRouter(messages, jsonMode = false) {
           'HTTP-Referer': 'https://telegram-bot.com',
           'X-Title': 'FinanceBot'
         },
-        timeout: 20000 
+        timeout: 60000 
       });
       return response.data.choices?.[0]?.message?.content; 
     } catch (error) {
