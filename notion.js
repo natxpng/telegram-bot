@@ -15,9 +15,9 @@ const notion = new Client({ auth: process.env.NOTION_API_KEY });
 const DATABASE_ID = process.env.NOTION_DATABASE_ID;
 console.log('[NOTION] Client Notion instanciado.');
 
-// --- A MUDANÇA CRÍTICA ESTÁ AQUI ---
-// Verificamos UMA VEZ se a função moderna existe
-const USA_QUERY_MODERNO = (notion.databases && notion.databases.query);
+const USA_QUERY_MODERNO = false;
+
+//const USA_QUERY_MODERNO = (notion.databases && notion.databases.query);
 
 if (USA_QUERY_MODERNO) {
   console.log('[DIAGNÓSTICO] Função `notion.databases.query` FOI encontrada. Usando SDK moderno.');
@@ -60,29 +60,39 @@ async function salvarGastoNotion({ chatId, nome, data, descricao, valor, tipoPag
 // --- FUNÇÕES DE LEITURA CORRIGIDAS (COM IF/ELSE) ---
 
 async function buscarDadosUsuarioNotion(chatId) {
-  const usarQueryModerno = true; // FORCEI TRUE AQUI PARA TESTE
-  if (usarQueryModerno) { 
-     // ... resto do código
-    // --- VERSÃO NOVA (ideal) ---
-    console.log(`[LOG] Executando buscarDadosUsuarioNotion (ChatID: ${chatId}) via notion.databases.query() [MODERNO]`);
-    const response = await notion.databases.query({
-      database_id: DATABASE_ID,
-      filter: { and: [
-          { property: 'Telegram User ID', number: { equals: chatId } },
-          { property: 'Renda Mensal', number: { is_not_empty: true } }
-      ]}
-    });
-    return response.results[0]?.properties || null;
+  if (chatId == 7592068445) { 
+    console.log('[LOG] Usuário VIP detectado. Acesso liberado via Hardcode.');
+    return {
+      'Nome do Usuário': { title: [{ text: { content: 'Natal' } }] },
+      'Telegram User ID': { number: 7592068445 },
+      'Renda Mensal': { number: 3500 },      // Coloque o valor que quiser para o bot usar nas contas
+      'Gastos Fixos': { number: 1400 },
+      'Gastos Variáveis': { number: 700 },
+      'Meta de Poupança': { number: 1100 }
+    };
+  }
+
+  // --- LÓGICA PADRÃO PARA OUTROS (Mantida caso conserte a lib no futuro) ---
+  if (USA_QUERY_MODERNO) {
+     try {
+        const response = await notion.databases.query({
+            database_id: DATABASE_ID,
+            filter: { and: [
+                { property: 'Telegram User ID', number: { equals: chatId } },
+                { property: 'Renda Mensal', number: { is_not_empty: true } }
+            ]}
+        });
+        return response.results[0]?.properties || null;
+    } catch (e) { return null; }
   } else {
-    // --- VERSÃO ANTIGA (fallback) ---
-    console.log(`[LOG] Executando buscarDadosUsuarioNotion (ChatID: ${chatId}) via notion.search() [FALLBACK]`);
+    // FALLBACK (Vai usar esse para quem não for você, se houver)
+    console.log(`[LOG] Buscando ID ${chatId} via notion.search() [FALLBACK]`);
     const response = await notion.search({
       filter: { property: 'object', value: 'page' }
     });
     const page = response.results.find(p => {
       const props = p.properties || {};
-      return props['Telegram User ID']?.number === chatId &&
-             props['Renda Mensal']?.number !== undefined;
+      return props['Telegram User ID']?.number === chatId;
     });
     return page?.properties || null;
   }
