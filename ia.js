@@ -76,7 +76,7 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
 
     // 4. MONTE A CHAMADA
     const respostaIA = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: "deepseek/deepseek-chat-v3.1:free",
+      model: "google/gemma-3-27b-it:free",
       messages: [
         { role: "system", content: systemPrompt },
         { 
