@@ -3,12 +3,15 @@ const axios = require('axios');
 const { buscarGastosDetalhados, gerarResumoFinanceiro } = require('./notion');
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-// --- 1. LISTA DE MODELOS LIMPA E ROBUSTA ---
+// --- 1. SUA LISTA DE MODELOS ---
 const MODELOS_DISPONIVEIS = [
-  "google/gemini-2.0-flash-exp:free",      // O mais inteligente
-  "google/gemma-2-9b-it:free",             // Rápido e bom em PT-BR
-  "meta-llama/llama-3.1-8b-instruct:free", // Estável
-  "huggingfaceh4/zephyr-7b-beta:free"      // Backup
+  "google/gemini-2.0-flash-exp:free",          
+  "meta-llama/llama-3.3-70b-instruct:free",    
+  "qwen/qwen-2.5-72b-instruct:free",           
+  "google/gemma-2-9b-it:free",                 
+  "mistralai/mistral-nemo:free",               
+  "meta-llama/llama-3.1-8b-instruct:free",     
+  "huggingfaceh4/zephyr-7b-beta:free"          
 ];
 
 // --- 2. LISTA DE CATEGORIAS OFICIAIS ---
@@ -18,10 +21,14 @@ async function chamarOpenRouter(messages, jsonMode = false) {
   let lastError = null;
   for (const model of MODELOS_DISPONIVEIS) {
     try {
+      console.log(`[DEBUG IA] Tentando modelo: ${model}`); // LOG DE CONEXÃO
+      
       const payload = { model: model, messages: messages };
+      
       if (jsonMode && model.includes('gemini')) {
         payload.response_format = { type: "json_object" };
       }
+
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', payload, {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
@@ -33,6 +40,7 @@ async function chamarOpenRouter(messages, jsonMode = false) {
       });
       return response.data.choices?.[0]?.message?.content; 
     } catch (error) {
+      console.warn(`[DEBUG IA] Falha no modelo ${model}: ${error.message}`);
       lastError = error;
     }
   }
@@ -40,7 +48,7 @@ async function chamarOpenRouter(messages, jsonMode = false) {
 }
 
 /**
- * ATENA: CHAT COM ESTRATÉGIA E PERSONALIDADE (SEU PROMPT ORIGINAL)
+ * ATENA: PERSONALIDADE + ESTRATÉGIA
  */
 async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
   bot.sendChatAction(chatId, 'typing');
@@ -58,7 +66,6 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
       contextoDados += `Nome: ${dadosUsuario['Nome do Usuário']?.title?.[0]?.text?.content || 'Usuário'}\n`;
       contextoDados += `Renda Mensal: R$ ${renda.toFixed(2)}\n`;
       contextoDados += `Gastos Fixos: R$ ${gastosFixos.toFixed(2)}\n`;
-      contextoDados += `Meta de Poupança Mensal: R$ ${metaPoupanca.toFixed(2)}\n`;
       contextoDados += `\n## Situação Mês Atual ##\n`;
       contextoDados += `Total Gasto no Mês (Variáveis): R$ ${resumoFinanceiro.totalGastoMesAtual.toFixed(2)}\n`;
       
@@ -72,7 +79,7 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
         });
       }
     } else {
-      contextoDados = "O usuário ainda não finalizou o onboarding. Responda apenas à pergunta dele de forma geral, sem usar dados pessoais. Se ele perguntar sobre os gastos dele, diga que ele precisa se cadastrar com /start primeiro.";
+      contextoDados = "O usuário ainda não finalizou o onboarding.";
     }
 
     const systemPrompt = `
@@ -83,29 +90,21 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
     - Você NÃO é um "fiscal" que proíbe tudo. Você é uma facilitadora.
     - Seu objetivo é fazer o dinheiro da usuária render, permitindo que ela viva bem.
 
-    **REGRAS DE OURO PARA AVALIAR COMPRAS (Use isto para decidir):**
-
+    **REGRAS DE OURO PARA AVALIAR COMPRAS:**
     1. **A Regra do "Cabe no Bolso":**
        - Olhe o "DINHEIRO LIVRE AGORA". Se o valor da compra for MENOR que o dinheiro livre, sua resposta padrão deve ser **SIM**.
-       - Ex: "Amiga, tá tranquilo! Você tem caixa pra isso e ainda sobra."
+       - Ex: "Amiga, tá tranquilo! Você tem caixa pra isso."
 
-    2. **Avaliação de Timing (Estratégia):**
-       - Considere a data de hoje. Se for fim de mês (dia 20+), sugira: "Se você passar no crédito agora, cai só no mês que vem ou já pega essa fatura? Se o cartão virar dia X, compensa esperar 2 dias."
-       - Se for início de mês, lembre das prioridades: "O aluguel já tá pago? Se sim, manda bala."
+    2. **Avaliação de Timing:**
+       - Fim de mês? Sugira esperar o cartão virar.
+       - Início de mês? Lembre das prioridades (aluguel).
 
-    3. **A Regra da Compensação (Trade-off):**
-       - Se o dinheiro estiver curto, mas não impossível, sugira uma TROCA em vez de um "não".
-       - Ex: "Dá pra comprar, mas aí a gente precisa segurar a onda no iFood esse fim de semana pra compensar. Topa?"
-       - Ex: "Como você já terminou de pagar aquela parcela X (considere se ela mencionar isso), abriu um espaço no orçamento."
-
-    4. **Contexto Emocional:**
-       - Se for algo pequeno que traz felicidade (um café, um livro), incentive. Saúde mental importa.
-       - Se for algo grande e supérfluo com o orçamento estourado, aí sim alerte com carinho.
+    3. **A Regra da Compensação:**
+       - Se o dinheiro estiver curto, sugira uma TROCA.
+       - Ex: "Dá pra comprar, mas segura o iFood no fim de semana?"
 
     **Formato de Resposta:**
-    - Texto curto, direto, sem Markdown, sem enrolação. Use gírias leves ("bora", "tranquilo", "suave").
-    - Se for aprovar: "Claro! Tá dentro do orçamento."
-    - Se for reprovar: Explique a matemática ("Se comprar isso, falta pro aluguel").
+    - Texto curto, direto, sem Markdown, sem enrolação. Use gírias leves.
     `;
 
     let resposta = await chamarOpenRouter([
@@ -125,25 +124,29 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
 }
 
 /**
- * FUNÇÃO TÉCNICA: EXTRAÇÃO DE JSON DO GASTO (TURBINADA)
+ * FUNÇÃO TÉCNICA: EXTRAÇÃO DE JSON DO GASTO (COM LOGS DETALHADOS)
  */
 async function analisarGastoComIA(descricao) {
+  console.log(`[DEBUG IA] Iniciando análise para: "${descricao}"`);
+
   const systemPrompt = `
       Você é um motor de processamento de despesas. Extraia JSON estrito.
+      
       Categorias Válidas: [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
       Métodos: [Crédito, Débito, Pix, Dinheiro, Boleto, Outro]
       
       Regras:
       1. Extraia o valor (number).
       2. Extraia parcelas (number, default 1). Se disser "3x" ou "3 vezes", são 3 parcelas.
-      3. ENQUADRE o item na categoria mais óbvia (Use o bom senso):
-         - Mercado, Feira, Ifood, Restaurante, Padaria, Bebida -> Alimentação
+      3. ENQUADRE o item na categoria mais óbvia (Use inteligência):
+         - Mercado, Feira, Ifood, Restaurante, Padaria, Bar -> Alimentação
          - Uber, 99, Ônibus, Metrô, Gasolina, Estacionamento, Mecânico -> Transporte
-         - Cinema, Teatro, Show, Netflix, Spotify, Steam, Jogos, Viagem -> Lazer
-         - Farmácia, Médico, Dentista, Exames, Terapia, Academia -> Saúde
-         - Aluguel, Condomínio, Luz, Internet, Gás, Reforma -> Moradia
+         - Cinema, Teatro, Show, Streaming (Netflix/Spotify), Jogos, Viagem, Passeio -> Lazer
+         - Farmácia, Médico, Dentista, Exames, Terapia, Academia, Personal -> Saúde
+         - Aluguel, Condomínio, Luz, Internet, Gás, Reforma, Faxina -> Moradia
          - Curso, Faculdade, Livro, Material escolar -> Educação
          - Roupas, Eletrônicos, Presentes, Shopee, Shein, Amazon -> Compras
+         - Empréstimo, Cartão atrasado, Juros -> Dívidas
       
       Retorne APENAS JSON: {"categoria": "String", "valor": Number, "tipoPagamento": "String", "parcelas": Number, "descricao_formatada": "String", "is_gasto": Boolean}
       `;
@@ -154,28 +157,46 @@ async function analisarGastoComIA(descricao) {
         { role: "user", content: `Analise: "${descricao}"` }
     ], true);
 
-    content = content.replace(/```json/g, '').replace(/```/g, '').trim();
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) content = jsonMatch[0];
+    console.log(`[DEBUG IA] Resposta bruta da IA:`, content);
+
+    // --- CORREÇÃO DE PARSING ---
+    const firstBrace = content.indexOf('{');
+    const lastBrace = content.lastIndexOf('}');
+    
+    if (firstBrace !== -1 && lastBrace !== -1) {
+        content = content.substring(firstBrace, lastBrace + 1);
+    }
     
     let dados = JSON.parse(content);
+    console.log(`[DEBUG IA] JSON Parseado:`, dados);
 
-    // --- SANITIZAÇÃO DE CATEGORIA ---
+    // --- CORREÇÃO DE CATEGORIA (SANITIZAÇÃO BLINDADA COM LOGS) ---
     if (dados.categoria) {
-        const categoriaCerta = CATEGORIAS_VALIDAS.find(cat => 
-            cat.toLowerCase() === dados.categoria.toLowerCase() || 
-            cat.toLowerCase().includes(dados.categoria.toLowerCase()) || 
-            dados.categoria.toLowerCase().includes(cat.toLowerCase())
-        );
-        dados.categoria = categoriaCerta || "Outro";
+        const catIA = dados.categoria.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        console.log(`[DEBUG IA] Categoria IA normalizada: "${catIA}"`);
+        
+        const categoriaCerta = CATEGORIAS_VALIDAS.find(cat => {
+            const catValida = cat.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+            return catValida === catIA || catValida.includes(catIA) || catIA.includes(catValida);
+        });
+        
+        if (categoriaCerta) {
+             console.log(`[DEBUG IA] Match encontrado: "${dados.categoria}" -> "${categoriaCerta}"`);
+             dados.categoria = categoriaCerta;
+        } else {
+             console.log(`[DEBUG IA] Sem match para "${dados.categoria}". Usando fallback "Outro".`);
+             dados.categoria = "Outro";
+        }
     } else {
+        console.log(`[DEBUG IA] Campo categoria vazio. Usando fallback "Outro".`);
         dados.categoria = "Outro";
     }
 
     return dados;
 
   } catch (error) {
-    console.error('Erro Parse JSON IA:', error.message);
+    console.error('[DEBUG IA] ERRO CRÍTICO NO PARSE/IA:', error.message);
+    // Se der erro, retorna zerado para o Regex assumir, mas tenta garantir categoria Outro
     return { is_gasto: false, categoria: "Outro" };
   }
 }
