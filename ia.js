@@ -8,20 +8,6 @@ const MODELOS_DISPONIVEIS = [
 // 1. MISTRAL NEMO: O "Segredo". Excelente em português, rápido e fila quase sempre vazia.
   "mistralai/mistral-nemo:free",
 
-  // 2. GEMMA 2 9B: É do Google, mas menos famoso que o Gemini. A infraestrutura aguenta tudo.
-  "google/gemma-2-9b-it:free",
-
-  // 3. ZEPHYR 7B: Um modelo mais antigo que caiu em desuso, logo, está sempre livre.
-  "huggingfaceh4/zephyr-7b-beta:free",
-
-  // 4. PHI 3 (Microsoft): Modelo leve e muito rápido.
-  "microsoft/phi-3-medium-128k-instruct:free",
-
-  // 5. LLAMA 3.1: Bom, mas muito popular. Fica aqui caso os de cima falhem.
-  "meta-llama/llama-3.1-8b-instruct:free",
-
-  // 6. GEMINI 2.0: O melhor, mas vive lotado. Deixamos por último como "tentativa de luxo".
-  "google/gemini-2.0-flash-exp:free"  
 ];
 
 // --- 2. LISTA DE CATEGORIAS OFICIAIS ---
