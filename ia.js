@@ -112,33 +112,50 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
  */
 async function categorizarGasto(descricao) {
   const systemPrompt = `
-      Você é um classificador de despesas. Sua única função é retornar a categoria correta para a despesa.
-      Responda APENAS com UMA das seguintes palavras: 
-      Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro
+      Você é um assistente financeiro especializado em categorizar despesas.
+      Analise a descrição do usuário e classifique em UMA destas categorias:
+      [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
+
+      Regras de Negócio:
+      - Mercado, Feira, Ifood, Restaurante, Padaria -> Alimentação
+      - Uber, 99, Ônibus, Metrô, Gasolina, Estacionamento -> Transporte
+      - Aluguel, Condomínio, Luz, Internet, Manutenção casa -> Moradia
+      - Cinema, Teatro, Jogos, Streaming (Netflix/Spotify) -> Lazer
+      - Farmácia, Médico, Exames -> Saúde
+      - Curso, Faculdade, Livros -> Educação
+
+      Responda APENAS com o nome da categoria. Não use pontuação final.
       `;
   try {
     const respostaIA = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: "deepseek/deepseek-chat-v3.1:free",
+      model: "google/gemma-3-27b-it:free",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Descrição da despesa: "${descricao}"` }
-      ]
+        { role: "user", content: `Classifique este gasto: "${descricao}"` }
+      ],
+      temperature: 0, // 2. Temperatura Zero: Deixa a IA determinística (sem criatividade), essencial para classificação
     }, {
       headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`, // Certifique-se de usar env var
         'Content-Type': 'application/json'
       }
     });
 
-    let categoria = respostaIA.data.choices?.[0]?.message?.content.trim() || "Outro";
+    let textoResposta = respostaIA.data.choices?.[0]?.message?.content || "";
+    
+    // 3. Validação Flexível (Sanitização)
+    // Em vez de verificar se é igual, verificamos se a resposta CONTÉM a categoria
     const categoriasValidas = ['Alimentação', 'Transporte', 'Moradia', 'Lazer', 'Saúde', 'Educação', 'Compras', 'Dívidas', 'Outro'];
-    if (!categoriasValidas.includes(categoria)) {
-      return "Outro";
-    }
-    return categoria;
+    
+    // Procura qual categoria válida está presente no texto da resposta
+    const categoriaEncontrada = categoriasValidas.find(cat => 
+        new RegExp(cat, 'i').test(textoResposta) // 'i' ignora maiúsculas/minúsculas
+    );
+
+    return categoriaEncontrada || "Outro";
 
   } catch (error) {
-    console.error('Erro ao categorizar:', error);
+    console.error('Erro ao categorizar:', error.message);
     return 'Outro';
   }
 }
