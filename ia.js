@@ -5,13 +5,19 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 // --- 1. SUA LISTA DE MODELOS ---
 const MODELOS_DISPONIVEIS = [
-  "google/gemini-2.0-flash-exp:free",          
-  "meta-llama/llama-3.3-70b-instruct:free",    
-  "qwen/qwen-2.5-72b-instruct:free",           
-  "google/gemma-2-9b-it:free",                 
-  "mistralai/mistral-nemo:free",               
-  "meta-llama/llama-3.1-8b-instruct:free",     
-  "huggingfaceh4/zephyr-7b-beta:free"          
+// TENTATIVA 1: Os "Gênios" (Podem estar cheios)
+  "google/gemini-2.0-flash-exp:free",
+  "google/gemini-2.0-flash-thinking-exp:free",
+  
+  // TENTATIVA 2: Os "Robustos" (Bons e geralmente estáveis)
+  "google/gemma-2-9b-it:free",
+  "meta-llama/llama-3.1-8b-instruct:free",
+  
+  // TENTATIVA 3: Os "Segredos" (Filas menores)
+  "mistralai/mistral-nemo:free",
+  "huggingfaceh4/zephyr-7b-beta:free",
+  "microsoft/phi-3-medium-128k-instruct:free", // Esse quase nunca cai
+  "liquid/lfm-40b:free"   
 ];
 
 // --- 2. LISTA DE CATEGORIAS OFICIAIS ---
