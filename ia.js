@@ -52,51 +52,83 @@ function expandirPorPeso() {
 
 // --- 3. FUNÇÃO PRINCIPAL: TIMEOUT INTELIGENTE + FALLBACK ---
 async function chamarOpenRouter(messages, jsonMode = false) {
-  const modelosOrdenados = expandirPorPeso();
+  const modelos = expandirPorPeso();
   let erroFinal = null;
 
-  for (const modelo of modelosOrdenados) {
-    try {
-      console.log(`[IA] Tentando modelo: ${modelo.name} | timeout=${modelo.timeout}ms`);
+  // Variações universais de payload aceitas por diferentes modelos
+  const payloadVariations = [
+    // 1 — payload padrão OpenAI-like
+    (modelo) => ({
+      model: modelo,
+      messages,
+      ...(jsonMode ? { response_format: { type: "json_object" } } : {})
+    }),
 
-      const payload = {
-        model: modelo.name,
-        messages
-      };
+    // 2 — content explícito dentro de "type: text"
+    (modelo) => ({
+      model: modelo,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: [{ type: "text", text: m.content }]
+      })),
+      ...(jsonMode ? { response_format: { type: "json_object" } } : {})
+    }),
 
-      // JSON mode ativado só pro Gemini (se você quiser expandir pra Llama depois, me avise)
-      if (jsonMode && modelo.name.includes("gemini")) {
-        payload.response_format = { type: "json_object" };
+    // 3 — fallback usando "input" (alguns modelos free exigem isso)
+    (modelo) => ({
+      model: modelo,
+      input: messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n"),
+      ...(jsonMode ? { response_format: { type: "json_object" } } : {})
+    })
+  ];
+
+  // LOOP PRINCIPAL
+  for (const modelo of modelos) {
+    console.log(`\n[IA] Modelo selecionado: ${modelo.name} (timeout=${modelo.timeout}ms)`);
+
+    for (const makePayload of payloadVariations) {
+      const payload = makePayload(modelo.name);
+
+      try {
+        console.log(`[IA] Testando payload → ${modelo.name}`);
+
+        const resp = await axios.post(
+          "https://openrouter.ai/api/v1/chat/completions",
+          payload,
+          {
+            headers: {
+              "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+              "HTTP-Referer": "https://telegram-bot.com",
+              "X-Title": "FinanceBot"
+            },
+            timeout: modelo.timeout
+          }
+        );
+
+        // --- EXTRAÇÃO UNIVERSAL DE CONTEÚDO ---
+        let conteudo =
+          resp.data?.choices?.[0]?.message?.content ||
+          resp.data?.choices?.[0]?.output_text ||
+          resp.data?.output_text ||
+          null;
+
+        if (!conteudo) throw new Error("Modelo respondeu sem conteúdo");
+
+        console.log(`[IA] SUCESSO com ${modelo.name}`);
+        return conteudo;
+
+      } catch (err) {
+        console.warn(`[IA] Erro payload ${modelo.name}: ${err.message}`);
+        erroFinal = err;
       }
-
-      const resp = await axios.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        payload,
-        {
-          headers: {
-            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://telegram-bot.com',
-            'X-Title': 'FinanceBot'
-          },
-          timeout: modelo.timeout
-        }
-      );
-
-      const conteudo = resp.data.choices?.[0]?.message?.content;
-      if (!conteudo) throw new Error("Resposta vazia da IA");
-
-      console.log(`[IA] Modelo OK: ${modelo.name}`);
-      return conteudo;
-
-    } catch (err) {
-      erroFinal = err;
-      console.warn(`[IA] Falha no modelo ${modelo.name}: ${err.message}`);
     }
+
+    console.warn(`[IA] Modelo pulado → ${modelo.name}`);
   }
 
   throw erroFinal;
 }
+
 /**
  * ATENA: PERSONALIDADE + ESTRATÉGIA
  */
