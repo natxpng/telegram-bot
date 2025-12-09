@@ -1,77 +1,72 @@
 require('dotenv').config();
 const { salvarGastoNotion, buscarGastosDetalhados } = require('./notion');
 const { gerarGraficoBonito } = require('./grafico');
-// Importamos a nova função de IA estruturada
+// IMPORTANTE: Trocamos categorizarGasto por analisarGastoComIA para resolver o BUG DO CSV
 const { analisarGastoComIA } = require('./ia'); 
 
 async function handleGasto(bot, chatId, texto, dadosUsuario) {
-  // 1. Verificação rápida de comandos para não gastar IA à toa
-  if (texto.startsWith('/')) return false;
+  // --- SUA LÓGICA DE REGEX RESTAURADA ---
+  const regexGasto = /(comprei|gastei|paguei|usei|passei|enviei|transferi|paguei)\s*(.*?)(no cartão|no dinheiro|no pix|no débito|no crédito)?\s*(por|de|=)?\s*(\d+[,.]?\d*)/i;
+  const match = texto.match(regexGasto);
 
-  // 2. Se o usuário não existe, barra antes
-  if (!dadosUsuario) {
-     // Deixamos passar false para o fluxo de onboarding ou chat tratar, 
-     // ou mandamos o aviso aqui se tiver certeza que é tentativa de gasto.
-     // Por segurança, retornamos false para o server.js decidir.
-     return false; 
-  }
-
-  // 3. O PULO DO GATO: Mandamos para a IA analisar se é gasto
-  // Removemos o Regex limitado. A IA decide agora.
-  bot.sendChatAction(chatId, 'typing');
-  
-  const dadosIA = await analisarGastoComIA(texto);
-
-  // Se a IA disse que NÃO é um gasto (ex: "Oi tudo bem"), retornamos false
-  // para que a função `handlePerguntaIA` (o chat amigo) responda.
-  if (!dadosIA || !dadosIA.is_gasto || dadosIA.valor === 0) {
-    return false;
-  }
-
-  // --- SE CHEGOU AQUI, É UM GASTO CONFIRMADO ---
-  
-  const nome = dadosUsuario['Nome do Usuário']?.title?.[0]?.text?.content || 'Usuário';
-  const parcelas = dadosIA.parcelas || 1;
-  const valorTotal = dadosIA.valor;
-  const valorParcela = valorTotal / parcelas;
-
-  // Lógica de Parcelamento
-  if (parcelas > 1) {
-    bot.sendMessage(chatId, `🔄 Processando compra parcelada em ${parcelas}x de R$${valorParcela.toFixed(2)}...`);
-    
-    for (let i = 0; i < parcelas; i++) {
-      const dataParcela = new Date();
-      dataParcela.setMonth(dataParcela.getMonth() + i); // Soma os meses
-      
-      const descricaoFinal = `${dadosIA.descricao_formatada} (${i + 1}/${parcelas})`;
-      
-      await salvarGastoNotion({
-        chatId,
-        nome,
-        data: dataParcela.toISOString().split('T')[0], // YYYY-MM-DD
-        descricao: descricaoFinal,
-        valor: valorParcela,
-        tipoPagamento: dadosIA.tipoPagamento || 'Crédito', // Parcelado vira Crédito por padrão se não vier
-        categoria: dadosIA.categoria
-      });
+  if (match) {
+    // Checagem de usuário
+    if (!dadosUsuario) {
+      bot.sendMessage(chatId, "Para registrar um gasto, você precisa primeiro se cadastrar. Digite /start para começar.");
+      return true; 
     }
-    bot.sendMessage(chatId, `✅ Compra parcelada registrada com sucesso!`);
 
-  } else {
-    // Compra à vista
-    await salvarGastoNotion({
-      chatId,
-      nome,
-      data: new Date().toISOString().split('T')[0],
-      descricao: dadosIA.descricao_formatada,
-      valor: valorTotal,
-      tipoPagamento: dadosIA.tipoPagamento,
-      categoria: dadosIA.categoria
-    });
-    bot.sendMessage(chatId, `✅ Gasto de R$ ${valorTotal.toFixed(2)} registrado em ${dadosIA.categoria}.`);
+    bot.sendChatAction(chatId, 'typing');
+
+    // --- AQUI ESTÁ A CORREÇÃO DO CSV ---
+    // Mesmo detectando com Regex, pedimos para a IA limpar os dados (JSON)
+    // para pegar as PARCELAS e a CATEGORIA certa que estavam falhando.
+    const dadosIA = await analisarGastoComIA(texto);
+
+    // Fallback: Se a IA falhar, usamos o que o Regex pegou
+    const valorFinal = dadosIA.valor > 0 ? dadosIA.valor : parseFloat(match[5].replace(',', '.'));
+    const descricaoFinal = dadosIA.descricao_formatada || match[2]?.trim() || texto;
+    const categoria = dadosIA.categoria || "Outro";
+    const tipoPagamento = dadosIA.tipoPagamento || (match[3]?.replace('no ', '')?.trim() || 'Outro');
+    const parcelas = dadosIA.parcelas || 1;
+    
+    const nome = dadosUsuario['Nome do Usuário']?.title?.[0]?.text?.content || 'Usuário';
+
+    // --- LÓGICA DE PARCELAS (ESSENCIAL PARA O CSV FICAR CERTO) ---
+    if (parcelas > 1) {
+       const valorParcela = valorFinal / parcelas;
+       bot.sendMessage(chatId, `🔄 Registrando parcelado em ${parcelas}x...`);
+       
+       for (let i = 0; i < parcelas; i++) {
+          const dataParcela = new Date();
+          dataParcela.setMonth(dataParcela.getMonth() + i);
+          
+          await salvarGastoNotion({
+            chatId, nome, 
+            data: dataParcela.toISOString().split('T')[0], 
+            descricao: `${descricaoFinal} (${i+1}/${parcelas})`, 
+            valor: valorParcela, 
+            tipoPagamento: tipoPagamento, 
+            categoria: categoria
+          });
+       }
+       bot.sendMessage(chatId, `✅ Compra parcelada salva com sucesso!`);
+    } else {
+       // À VISTA
+       await salvarGastoNotion({
+         chatId, nome, 
+         data: new Date().toISOString().split('T')[0], 
+         descricao: descricaoFinal, 
+         valor: valorFinal, 
+         tipoPagamento: tipoPagamento, 
+         categoria: categoria
+       });
+       bot.sendMessage(chatId, `Gasto registrado: ${descricaoFinal} (Categoria: ${categoria}) - R$ ${valorFinal.toFixed(2)}`);
+    }
+
+    return true;
   }
-
-  return true; // Retorna true para avisar o server.js que a mensagem foi processada
+  return false;
 }
 
 async function handleResumoGastos(bot, chatId, texto) {
@@ -79,7 +74,6 @@ async function handleResumoGastos(bot, chatId, texto) {
     bot.sendChatAction(chatId, 'typing');
     const gastosDetalhados = await buscarGastosDetalhados(chatId);
     const total = (gastosDetalhados || []).reduce((acc, g) => acc + (g.valor || 0), 0);
-    
     bot.sendMessage(chatId, `Total de gastos registrados: R$ ${total.toFixed(2)}`);
     return true;
   }

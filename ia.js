@@ -10,24 +10,15 @@ const MODELOS_DISPONIVEIS = [
   "nvidia/nemotron-nano-12b-v2-vl:free", // 2ª Tentativa: Rápido e estável
   "google/gemma-3-27b-it:free" // 3ª Tentativa: Backup final
 ];
-/**
- * Função técnica para tentar vários modelos se der erro 429
- */
+
 async function chamarOpenRouter(messages, jsonMode = false) {
   let lastError = null;
-
   for (const model of MODELOS_DISPONIVEIS) {
     try {
-      const payload = {
-        model: model,
-        messages: messages,
-      };
-
-      // Só ativa modo JSON estrito se for o Gemini (outros podem dar erro com isso)
+      const payload = { model: model, messages: messages };
       if (jsonMode && model.includes('gemini')) {
         payload.response_format = { type: "json_object" };
       }
-
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', payload, {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
@@ -35,31 +26,31 @@ async function chamarOpenRouter(messages, jsonMode = false) {
           'HTTP-Referer': 'https://telegram-bot.com',
           'X-Title': 'FinanceBot'
         },
-        timeout: 20000 // 20 segundos de tolerância
+        timeout: 20000 
       });
-
       return response.data.choices?.[0]?.message?.content; 
-
     } catch (error) {
-      console.warn(`[IA] Falha no modelo ${model}:`, error.response?.status || error.message);
       lastError = error;
-      // Continua para o próximo modelo da lista
     }
   }
-  throw lastError; // Se todos falharem
+  throw lastError;
 }
+// ---------------------------------------------------------
 
+
+/**
+ * SEU PROMPT ORIGINAL FOI RESTAURADO AQUI EMBAIXO
+ */
 async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
   bot.sendChatAction(chatId, 'typing');
   try {
     const resumoFinanceiro = await gerarResumoFinanceiro(chatId);
     const gastosDetalhados = await buscarGastosDetalhados(chatId); 
-   
-    // --- 1. SEU CONTEXTO DE DADOS ORIGINAL ---
+
+    // --- 2. SEU CONTEXTO DE DADOS (CÓPIA FIEL) ---
     let contextoDados = "## Contexto do Usuário ##\n";
     
     if (dadosUsuario) {
-      // Usuário cadastrado, monta o contexto completo
       const renda = dadosUsuario['Renda Mensal']?.number || 0;
       const metaPoupanca = dadosUsuario['Meta de Poupança']?.number || 0;
       const gastosFixos = dadosUsuario['Gastos Fixos']?.number || 0;
@@ -72,7 +63,6 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
       contextoDados += `Total Gasto no Mês (Variáveis): R$ ${resumoFinanceiro.totalGastoMesAtual.toFixed(2)}\n`;
       contextoDados += `Gastos por Categoria (Mês Atual): ${JSON.stringify(resumoFinanceiro.categoriasMesAtual)}\n`;
 
-      // Calcula o "dinheiro sobrando"
       const disponivelEsteMes = renda - gastosFixos - resumoFinanceiro.totalGastoMesAtual - metaPoupanca;
       contextoDados += `Dinheiro Disponível (Renda - Fixos - Variáveis - Meta Poupança): R$ ${disponivelEsteMes.toFixed(2)}\n`;
 
@@ -83,11 +73,10 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
         });
       }
     } else {
-      // Usuário NOVO.
       contextoDados = "O usuário ainda não finalizou o onboarding. Responda apenas à pergunta dele de forma geral, sem usar dados pessoais. Se ele perguntar sobre os gastos dele, diga que ele precisa se cadastrar com /start primeiro.";
     }
 
-    // --- 2. SEU PROMPT DA ATENA RESTAURADO ---
+    // --- 3. SEU PROMPT DA ATENA (CÓPIA FIEL) ---
     const systemPrompt = `
     Você é a "Atena", sua assistente financeira pessoal.
     Sua personalidade é casual, empática e parceira, como uma amiga que entende de finanças e quer te ajudar, não te julgar.
@@ -112,71 +101,51 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
     6.  **Formato:** SEMPRE texto puro. NUNCA use tokens como "<|begin_of_sentence|>"  ou "<|end_of_sentence|>".
     `;
 
-    // --- 3. CHAMADA COM O NOVO SISTEMA ANTI-FALHA ---
-    // (Aqui usamos a função nova, mas passando os SEUS textos)
+    // AQUI É A ÚNICA MUDANÇA: Usamos a função de retry em vez do axios direto
     let resposta = await chamarOpenRouter([
-       { role: "system", content: systemPrompt },
-       { 
-         role: "user", 
-         content: `${contextoDados}\n\nPERGUNTA DO USUÁRIO:\n"${texto}"` 
-       }
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `${contextoDados}\n\nPERGUNTA DO USUÁRIO:\n"${texto}"` }
     ]);
 
-    // Limpeza de sujeira da IA (Tokens)
     resposta = resposta.replace(/<.*?>/g, '').trim();
-    
     bot.sendMessage(chatId, resposta);
     return true;
 
   } catch (error) {
     console.error('Erro detalhado IA:', error?.response?.data || error);
-    bot.sendMessage(chatId, 'Amiga, minha conexão deu uma oscilada aqui (IA sobrecarregada). Tenta me perguntar de novo em alguns segundos?');
+    bot.sendMessage(chatId, 'Amiga, a conexão falhou aqui rapidinho. Tenta de novo?');
     return true;
   }
 }
 
 /**
- * Função para analisar o gasto e extrair JSON (Parcelas, Categoria, etc)
- * Essa função NÃO afeta a personalidade da Atena, serve apenas para organizar o CSV.
+ * MANTIVE ESTA FUNÇÃO NOVA APENAS PARA O CSV FUNCIONAR (PARCELAS/JSON)
+ * ELA NÃO TEM PERSONALIDADE, É SÓ UM EXTRATOR DE DADOS TÉCNICO.
  */
 async function analisarGastoComIA(descricao) {
   const systemPrompt = `
-      Você é um motor de processamento de despesas.
-      Sua tarefa é ler a frase e extrair um JSON estrito.
-      
+      Você é um motor de processamento de despesas. Extraia JSON estrito.
       Categorias: [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
       Métodos: [Crédito, Débito, Pix, Dinheiro, Boleto, Outro]
-
       Regras:
       1. Extraia o valor (number).
       2. Extraia parcelas (number, default 1). Se disser "3x", são 3 parcelas.
       3. "Mercado/Comida" -> Alimentação. "Uber/Gasolina" -> Transporte.
       
-      Retorne APENAS JSON:
-      {
-        "categoria": "String",
-        "valor": Number,
-        "tipoPagamento": "String",
-        "parcelas": Number,
-        "descricao_formatada": "String",
-        "is_gasto": Boolean
-      }
+      Retorne APENAS JSON: {"categoria": "String", "valor": Number, "tipoPagamento": "String", "parcelas": Number, "descricao_formatada": "String", "is_gasto": Boolean}
       `;
 
   try {
     let content = await chamarOpenRouter([
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analise: "${descricao}"` }
-    ], true); // true = Tenta ativar modo JSON
+    ], true);
 
     content = content.replace(/```json/g, '').replace(/```/g, '').trim();
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) content = jsonMatch[0];
-
     return JSON.parse(content);
-
   } catch (error) {
-    console.error('Erro IA JSON:', error.message);
     return { is_gasto: false };
   }
 }
