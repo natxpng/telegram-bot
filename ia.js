@@ -6,8 +6,8 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 // --- LISTA DE MODELOS (PRIORIDADE -> BACKUP) ---
 // Se o primeiro estiver lotado (429), ele tenta o próximo.
 const MODELOS_DISPONIVEIS = [
-  "google/gemini-2.0-flash-exp:free",      // 1ª Tentativa: Melhor inteligência
-  "meta-llama/llama-3.1-8b-instruct:free", // 2ª Tentativa: Rápido e estável
+  "nvidia/nemotron-nano-9b-v2:free",      // 1ª Tentativa: Melhor inteligência
+  "nvidia/nemotron-nano-12b-v2-vl:free", // 2ª Tentativa: Rápido e estável
   "google/gemma-3-27b-it:free" // 3ª Tentativa: Backup final
 ];
 
