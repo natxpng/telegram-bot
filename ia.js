@@ -10,25 +10,20 @@ const MODELOS_DISPONIVEIS = [
   "nvidia/nemotron-nano-12b-v2-vl:free", // 2ª Tentativa: Rápido e estável
   "google/gemma-3-27b-it:free" // 3ª Tentativa: Backup final
 ];
-
 /**
- * Função auxiliar que tenta vários modelos até um funcionar.
- * Resolve o problema do erro 429 (Too Many Requests).
+ * Função técnica para tentar vários modelos se der erro 429
  */
 async function chamarOpenRouter(messages, jsonMode = false) {
   let lastError = null;
 
   for (const model of MODELOS_DISPONIVEIS) {
     try {
-      console.log(`[IA] Tentando modelo: ${model}...`);
-      
       const payload = {
         model: model,
         messages: messages,
       };
 
-      // Alguns modelos dão erro se mandarmos response_format: json_object sem suporte
-      // Então só mandamos se for o Gemini (que sabemos que suporta bem)
+      // Só ativa modo JSON estrito se for o Gemini (outros podem dar erro com isso)
       if (jsonMode && model.includes('gemini')) {
         payload.response_format = { type: "json_object" };
       }
@@ -40,44 +35,46 @@ async function chamarOpenRouter(messages, jsonMode = false) {
           'HTTP-Referer': 'https://telegram-bot.com',
           'X-Title': 'FinanceBot'
         },
-        timeout: 15000 // Timeout de 15s para não ficar travado
+        timeout: 20000 // 20 segundos de tolerância
       });
 
-      return response.data.choices?.[0]?.message?.content; // SUCESSO! Retorna o texto.
+      return response.data.choices?.[0]?.message?.content; 
 
     } catch (error) {
       console.warn(`[IA] Falha no modelo ${model}:`, error.response?.status || error.message);
       lastError = error;
-      // Continua para a próxima iteração do loop (próximo modelo)
+      // Continua para o próximo modelo da lista
     }
   }
-  
-  // Se saiu do loop, todos falharam
-  throw lastError;
+  throw lastError; // Se todos falharem
 }
 
-/**
- * Processa o Chat (Conversa livre)
- */
 async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
   bot.sendChatAction(chatId, 'typing');
   try {
     const resumoFinanceiro = await gerarResumoFinanceiro(chatId);
     const gastosDetalhados = await buscarGastosDetalhados(chatId); 
-    
+   
+    // --- 1. SEU CONTEXTO DE DADOS ORIGINAL ---
     let contextoDados = "## Contexto do Usuário ##\n";
+    
     if (dadosUsuario) {
+      // Usuário cadastrado, monta o contexto completo
       const renda = dadosUsuario['Renda Mensal']?.number || 0;
       const metaPoupanca = dadosUsuario['Meta de Poupança']?.number || 0;
       const gastosFixos = dadosUsuario['Gastos Fixos']?.number || 0;
       
       contextoDados += `Nome: ${dadosUsuario['Nome do Usuário']?.title?.[0]?.text?.content || 'Usuário'}\n`;
       contextoDados += `Renda Mensal: R$ ${renda.toFixed(2)}\n`;
+      contextoDados += `Gastos Fixos: R$ ${gastosFixos.toFixed(2)}\n`;
+      contextoDados += `Meta de Poupança Mensal: R$ ${metaPoupanca.toFixed(2)}\n`;
       contextoDados += `\n## Situação Mês Atual ##\n`;
       contextoDados += `Total Gasto no Mês (Variáveis): R$ ${resumoFinanceiro.totalGastoMesAtual.toFixed(2)}\n`;
-      
+      contextoDados += `Gastos por Categoria (Mês Atual): ${JSON.stringify(resumoFinanceiro.categoriasMesAtual)}\n`;
+
+      // Calcula o "dinheiro sobrando"
       const disponivelEsteMes = renda - gastosFixos - resumoFinanceiro.totalGastoMesAtual - metaPoupanca;
-      contextoDados += `Dinheiro Disponível Hoje: R$ ${disponivelEsteMes.toFixed(2)}\n`;
+      contextoDados += `Dinheiro Disponível (Renda - Fixos - Variáveis - Meta Poupança): R$ ${disponivelEsteMes.toFixed(2)}\n`;
 
       if (gastosDetalhados && gastosDetalhados.length > 0) {
         contextoDados += "\nÚltimos 3 gastos registrados:\n";
@@ -86,36 +83,61 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
         });
       }
     } else {
-      contextoDados = "O usuário ainda não finalizou o onboarding.";
+      // Usuário NOVO.
+      contextoDados = "O usuário ainda não finalizou o onboarding. Responda apenas à pergunta dele de forma geral, sem usar dados pessoais. Se ele perguntar sobre os gastos dele, diga que ele precisa se cadastrar com /start primeiro.";
     }
 
+    // --- 2. SEU PROMPT DA ATENA RESTAURADO ---
     const systemPrompt = `
-    Você é a "Atena", assistente financeira pessoal.
-    Personalidade: Amiga, casual, feminina e direta.
-    Contexto Atual: ${contextoDados}
-    Responda em texto corrido, sem Markdown complexo.
+    Você é a "Atena", sua assistente financeira pessoal.
+    Sua personalidade é casual, empática e parceira, como uma amiga que entende de finanças e quer te ajudar, não te julgar.
+    Você NUNCA usa Markdown. Você fala em frases curtas e usa um tom feminino ("amiga", "a gente", "tô vendo aqui...").
+
+    **Sua Missão:**
+    Dar a "real" sobre as finanças da usuária, mas de forma tranquila e construtiva. O objetivo é aconselhar, NUNCA dar bronca ou ser agressiva.
+
+    **Como Agir (OBRIGATÓRIO):**
+    1.  **Tom Feminino e Casual:** Fale como uma amiga. Evite termos masculinos como "amigo" ou "mano".
+    2.  **Use os Números (com empatia):** Seja específica, mas com calma.
+        * RUIM: "Isso é um gasto enorme. Não compre."
+        * BOM: "Oi, amiga! Vi que você quer gastar R$ 800. Dando uma olhada aqui, vi que você já está R$ 580 no vermelho este mês." 
+    3.  **Seja Criteriosa (mas não agressiva):** Mostre o impacto.
+        * RUIM: "Calma lá! Você vai se afundar!"
+        * BOM: "Se você comprar, seu negativo vai pra R$ 1380. Tenho receio que isso complique muito seu mês."
+    4.  **Analise Padrões (como uma amiga):**
+        * BOM: "Tô vendo aqui que você já gastou R$ 500 em 'Compras' este mês. Esse carrinho da Shein é prioridade mesmo agora?"
+    5.  **Sugira Alternativas (Importante!):** Sempre que desaconselhar, ofereça um plano B, como você sugeriu.
+        * BOM: "Com esse valor de R$ 800, fica pesado pra você arcar agora. Que tal a gente procurar em lojas mais baratas?"
+        * BOM: "Ou então, que tal esperar o mês que vem? Aí seu orçamento começa do zero e a gente se planeja pra isso."
+    6.  **Formato:** SEMPRE texto puro. NUNCA use tokens como "<|begin_of_sentence|>"  ou "<|end_of_sentence|>".
     `;
 
-    // CHAMA A FUNÇÃO ROBUSTA
+    // --- 3. CHAMADA COM O NOVO SISTEMA ANTI-FALHA ---
+    // (Aqui usamos a função nova, mas passando os SEUS textos)
     let resposta = await chamarOpenRouter([
-        { role: "system", content: systemPrompt },
-        { role: "user", content: texto }
+       { role: "system", content: systemPrompt },
+       { 
+         role: "user", 
+         content: `${contextoDados}\n\nPERGUNTA DO USUÁRIO:\n"${texto}"` 
+       }
     ]);
 
-    // Limpeza básica
+    // Limpeza de sujeira da IA (Tokens)
     resposta = resposta.replace(/<.*?>/g, '').trim();
+    
     bot.sendMessage(chatId, resposta);
     return true;
 
   } catch (error) {
-    console.error('Erro IA Chat (Todos os modelos falharam):', error.message);
-    bot.sendMessage(chatId, 'Estou meio sobrecarregada agora (Muitos pedidos). Tente daqui a pouco!');
+    console.error('Erro detalhado IA:', error?.response?.data || error);
+    bot.sendMessage(chatId, 'Amiga, minha conexão deu uma oscilada aqui (IA sobrecarregada). Tenta me perguntar de novo em alguns segundos?');
     return true;
   }
 }
 
 /**
- * Analisa o gasto e extrai JSON (Com sistema de Retry)
+ * Função para analisar o gasto e extrair JSON (Parcelas, Categoria, etc)
+ * Essa função NÃO afeta a personalidade da Atena, serve apenas para organizar o CSV.
  */
 async function analisarGastoComIA(descricao) {
   const systemPrompt = `
@@ -142,26 +164,19 @@ async function analisarGastoComIA(descricao) {
       `;
 
   try {
-    // CHAMA A FUNÇÃO ROBUSTA (jsonMode = true para tentar forçar JSON onde possível)
     let content = await chamarOpenRouter([
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analise: "${descricao}"` }
-    ], true);
+    ], true); // true = Tenta ativar modo JSON
 
-    // Limpeza agressiva para garantir JSON válido
     content = content.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    // Tenta encontrar o JSON dentro do texto se a IA for "fofoqueira" e falar demais
     const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-        content = jsonMatch[0];
-    }
+    if (jsonMatch) content = jsonMatch[0];
 
     return JSON.parse(content);
 
   } catch (error) {
-    console.error('Erro IA JSON (Todos falharam):', error.message);
-    // Retorna erro silencioso para não quebrar o bot
+    console.error('Erro IA JSON:', error.message);
     return { is_gasto: false };
   }
 }
