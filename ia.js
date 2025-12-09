@@ -3,47 +3,39 @@ const axios = require('axios');
 const { buscarGastosDetalhados, gerarResumoFinanceiro } = require('./notion');
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-// --- 1. LISTA DE MODELOS ESTÁVEIS ---
-const MODELOS = [
-  // Gemini 2.0 Flash: O melhor e mais rápido atualmente no free
-  "google/gemini-2.0-flash-exp:free",
+const MODELOS_DISPONIVEIS = [
+// 1. O melhor de todos (Google). Fala português perfeito e entende contexto.
+  "google/gemini-2.0-flash-exp:free",      
+
+  // 2. A versão "Raciocínio" do Google (muito boa para conselhos).
+  "google/gemini-2.0-flash-thinking-exp:free",
+
+  // 3. O Llama 70B (versão grande). É muito mais inteligente que o 8B ou Nano.
+  "meta-llama/llama-3.3-70b-instruct:free", 
   
-  // Qwen 2.5 72B: Excelente em português e aceita JSON via prompt
-  "qwen/qwen-2.5-72b-instruct:free",
+  // 4. Backup final (versão menor do Llama, mas ainda digna).
+  "meta-llama/llama-3.1-8b-instruct:free",
+  // 1. QWEN 2.5 72B: O melhor "custo-benefício" do free. 
+  // Português nativo excelente e costuma estar menos cheio que o Gemini.
+  "qwen/qwen-2.5-72b-instruct:free", 
+  // 2. MISTRAL NEMO 12B: Muito melhor que o "Nano". 
+  // É leve, rápido e tem uma personalidade ótima para chat.
+  "mistralai/mistral-nemo:free",
+  // 4. ZEPHYR 7B: Modelo mais antigo, mas muito estável e quase sempre livre.
+  "huggingfaceh4/zephyr-7b-beta:free",
   
-  // Llama 3.3 70B: Muito inteligente
-  "meta-llama/llama-3.3-70b-instruct:free",
-  
-  // Backups menores e rápidos
-  "google/gemma-2-9b-it:free",
-  "mistralai/mistral-nemo:free"
+  // 5. LIQUID LFM 40B: Modelo novo, pouca gente usa, costuma estar livre.
+  "liquid/lfm-40b:free"
 ];
 
-// --- 2. CATEGORIAS OFICIAIS ---
-const CATEGORIAS_VALIDAS = ['Alimentação', 'Transporte', 'Moradia', 'Lazer', 'Saúde', 'Educação', 'Compras', 'Dívidas', 'Outro'];
-
-// --- 3. FUNÇÃO DE CONEXÃO LIMPA (SEM PAYLOADS EXÓTICOS) ---
 async function chamarOpenRouter(messages, jsonMode = false) {
   let lastError = null;
-
-  for (const model of MODELOS) {
+  for (const model of MODELOS_DISPONIVEIS) {
     try {
-      console.log(`[IA] Tentando conectar com: ${model}`);
-
-      // PAYLOAD PADRÃO (O ÚNICO QUE FUNCIONA PRA TODOS)
-      const payload = {
-        model: model,
-        messages: messages,
-        temperature: 0.2 // Baixa temperatura para ser mais preciso no JSON
-      };
-
-      // CORREÇÃO DO ERRO 400:
-      // Só enviamos 'response_format' se for GEMINI. 
-      // Qwen, Llama e Mistral DÃO ERRO 400 se receberem isso no free tier.
+      const payload = { model: model, messages: messages };
       if (jsonMode && model.includes('gemini')) {
         payload.response_format = { type: "json_object" };
       }
-
       const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', payload, {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
@@ -51,36 +43,30 @@ async function chamarOpenRouter(messages, jsonMode = false) {
           'HTTP-Referer': 'https://telegram-bot.com',
           'X-Title': 'FinanceBot'
         },
-        timeout: 45000 // 45 segundos
+        timeout: 60000 
       });
-
-      const conteudo = response.data.choices?.[0]?.message?.content;
-      
-      if (conteudo) {
-          console.log(`[IA] Sucesso com ${model}`);
-          return conteudo; 
-      }
-
+      return response.data.choices?.[0]?.message?.content; 
     } catch (error) {
-      // Loga o erro curto para não poluir, e tenta o próximo
-      const status = error.response ? error.response.status : 'Erro de Rede';
-      console.warn(`[IA] Falha no modelo ${model} (Status: ${status}). Tentando próximo...`);
       lastError = error;
     }
   }
-  
-  console.error('[IA] Todos os modelos falharam.');
   throw lastError;
 }
+// ---------------------------------------------------------
 
-// --- FUNÇÃO DE CHAT (ATENA) ---
+
+/**
+ * SEU PROMPT ORIGINAL FOI RESTAURADO AQUI EMBAIXO
+ */
 async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
   bot.sendChatAction(chatId, 'typing');
   try {
     const resumoFinanceiro = await gerarResumoFinanceiro(chatId);
     const gastosDetalhados = await buscarGastosDetalhados(chatId); 
 
+    // --- 2. SEU CONTEXTO DE DADOS (CÓPIA FIEL) ---
     let contextoDados = "## Contexto do Usuário ##\n";
+    
     if (dadosUsuario) {
       const renda = dadosUsuario['Renda Mensal']?.number || 0;
       const metaPoupanca = dadosUsuario['Meta de Poupança']?.number || 0;
@@ -88,9 +74,12 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
       
       contextoDados += `Nome: ${dadosUsuario['Nome do Usuário']?.title?.[0]?.text?.content || 'Usuário'}\n`;
       contextoDados += `Renda Mensal: R$ ${renda.toFixed(2)}\n`;
+      contextoDados += `Gastos Fixos: R$ ${gastosFixos.toFixed(2)}\n`;
+      contextoDados += `Meta de Poupança Mensal: R$ ${metaPoupanca.toFixed(2)}\n`;
       contextoDados += `\n## Situação Mês Atual ##\n`;
       contextoDados += `Total Gasto no Mês (Variáveis): R$ ${resumoFinanceiro.totalGastoMesAtual.toFixed(2)}\n`;
-      
+      contextoDados += `Gastos por Categoria (Mês Atual): ${JSON.stringify(resumoFinanceiro.categoriasMesAtual)}\n`;
+
       const disponivelEsteMes = renda - gastosFixos - resumoFinanceiro.totalGastoMesAtual - metaPoupanca;
       contextoDados += `Dinheiro Disponível (Renda - Fixos - Variáveis - Meta Poupança): R$ ${disponivelEsteMes.toFixed(2)}\n`;
 
@@ -101,27 +90,47 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
         });
       }
     } else {
-      contextoDados = "O usuário ainda não finalizou o onboarding.";
+      contextoDados = "O usuário ainda não finalizou o onboarding. Responda apenas à pergunta dele de forma geral, sem usar dados pessoais. Se ele perguntar sobre os gastos dele, diga que ele precisa se cadastrar com /start primeiro.";
     }
 
+    // --- 3. SEU PROMPT DA ATENA (CÓPIA FIEL) ---
     const systemPrompt = `
-    Você é a "Atena", uma estrategista financeira pessoal (e amiga sincera).
+Você é a "Atena", uma estrategista financeira pessoal (e amiga sincera).
     
     **Personalidade:**
     - Feminina, casual, direta e inteligente.
     - Você NÃO é um "fiscal" que proíbe tudo. Você é uma facilitadora.
+    - Seu objetivo é fazer o dinheiro da usuária render, permitindo que ela viva bem.
 
-    **REGRAS DE DECISÃO:**
-    1. **Regra do Bolso:** Se "Dinheiro Disponível" > compra -> APROVE.
-    2. **Timing:** Fim de mês? Sugira esperar o cartão virar.
-    3. **Trade-off:** Sugira trocas se estiver apertado.
+    **REGRAS DE OURO PARA AVALIAR COMPRAS (Use isto para decidir):**
 
-    **Formato:** Texto curto, sem Markdown, direto ao ponto.
+    1. **A Regra do "Cabe no Bolso":**
+       - Olhe o "DINHEIRO LIVRE AGORA". Se o valor da compra for MENOR que o dinheiro livre, sua resposta padrão deve ser **SIM**.
+       - Ex: "Amiga, tá tranquilo! Você tem caixa pra isso e ainda sobra."
+
+    2. **Avaliação de Timing (Estratégia):**
+       - Considere a data de hoje. Se for fim de mês (dia 20+), sugira: "Se você passar no crédito agora, cai só no mês que vem ou já pega essa fatura? Se o cartão virar dia X, compensa esperar 2 dias."
+       - Se for início de mês, lembre das prioridades: "O aluguel já tá pago? Se sim, manda bala."
+
+    3. **A Regra da Compensação (Trade-off):**
+       - Se o dinheiro estiver curto, mas não impossível, sugira uma TROCA em vez de um "não".
+       - Ex: "Dá pra comprar, mas aí a gente precisa segurar a onda no iFood esse fim de semana pra compensar. Topa?"
+       - Ex: "Como você já terminou de pagar aquela parcela X (considere se ela mencionar isso), abriu um espaço no orçamento."
+
+    4. **Contexto Emocional:**
+       - Se for algo pequeno que traz felicidade (um café, um livro), incentive. Saúde mental importa.
+       - Se for algo grande e supérfluo com o orçamento estourado, aí sim alerte com carinho.
+
+    **Formato de Resposta:**
+    - Texto curto, direto, sem Markdown, sem enrolação. Use gírias leves ("bora", "tranquilo", "suave").
+    - Se for aprovar: "Claro! Tá dentro do orçamento."
+    - Se for reprovar: Explique a matemática ("Se comprar isso, falta pro aluguel").
     `;
 
+    // AQUI É A ÚNICA MUDANÇA: Usamos a função de retry em vez do axios direto
     let resposta = await chamarOpenRouter([
         { role: "system", content: systemPrompt },
-        { role: "user", content: `${contextoDados}\n\nPERGUNTA: "${texto}"` }
+        { role: "user", content: `${contextoDados}\n\nPERGUNTA DO USUÁRIO:\n"${texto}"` }
     ]);
 
     resposta = resposta.replace(/<.*?>/g, '').trim();
@@ -129,62 +138,41 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
     return true;
 
   } catch (error) {
-    console.error('Erro detalhado IA:', error?.message);
+    console.error('Erro detalhado IA:', error?.response?.data || error);
     bot.sendMessage(chatId, 'Amiga, a conexão falhou aqui rapidinho. Tenta de novo?');
     return true;
   }
 }
 
-// --- FUNÇÃO TÉCNICA (EXTRAÇÃO DE JSON) ---
+/**
+ * MANTIVE ESTA FUNÇÃO NOVA APENAS PARA O CSV FUNCIONAR (PARCELAS/JSON)
+ * ELA NÃO TEM PERSONALIDADE, É SÓ UM EXTRATOR DE DADOS TÉCNICO.
+ */
 async function analisarGastoComIA(descricao) {
   const systemPrompt = `
-      Você é um motor de processamento de despesas.
-      Categorias Válidas: [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
+      Você é um motor de processamento de despesas. Extraia JSON estrito.
+      Categorias: [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
       Métodos: [Crédito, Débito, Pix, Dinheiro, Boleto, Outro]
-      
       Regras:
       1. Extraia o valor (number).
       2. Extraia parcelas (number, default 1). Se disser "3x", são 3 parcelas.
-      3. ENQUADRE o item na categoria mais óbvia (Ex: Ifood->Alimentação, Uber->Transporte, Netflix->Lazer).
+      3. "Mercado/Comida" -> Alimentação. "Uber/Gasolina" -> Transporte.
       
       Retorne APENAS JSON: {"categoria": "String", "valor": Number, "tipoPagamento": "String", "parcelas": Number, "descricao_formatada": "String", "is_gasto": Boolean}
       `;
 
   try {
-    // Chamamos com jsonMode=true, mas a função chamarOpenRouter sabe
-    // que só deve enviar o flag especial para o Gemini, evitando erro 400 nos outros.
     let content = await chamarOpenRouter([
         { role: "system", content: systemPrompt },
         { role: "user", content: `Analise: "${descricao}"` }
     ], true);
 
-    // Limpeza bruta para garantir que o JSON venha limpo
     content = content.replace(/```json/g, '').replace(/```/g, '').trim();
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) content = jsonMatch[0];
-    
-    let dados = JSON.parse(content);
-
-    // SANITIZAÇÃO DE CATEGORIA (Correção do "Outro")
-    if (dados.categoria) {
-        const catIA = dados.categoria.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-        
-        const categoriaCerta = CATEGORIAS_VALIDAS.find(cat => {
-            const catValida = cat.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-            return catValida === catIA || catValida.includes(catIA) || catIA.includes(catValida);
-        });
-        
-        dados.categoria = categoriaCerta || "Outro";
-    } else {
-        dados.categoria = "Outro";
-    }
-
-    return dados;
-
+    return JSON.parse(content);
   } catch (error) {
-    console.error('Erro Parse JSON IA:', error.message);
-    // Fallback limpo para o código principal não quebrar
-    return { is_gasto: false, categoria: "Outro" };
+    return { is_gasto: false };
   }
 }
 
