@@ -60,8 +60,9 @@ async function salvarGastoNotion({ chatId, nome, data, descricao, valor, tipoPag
 // --- FUNÇÕES DE LEITURA CORRIGIDAS (COM IF/ELSE) ---
 
 async function buscarDadosUsuarioNotion(chatId) {
-  // Agora ele vai usar o fallback (else) no seu Render e parar de quebrar
-  if (USA_QUERY_MODERNO) {
+  const usarQueryModerno = true; // FORCEI TRUE AQUI PARA TESTE
+  if (usarQueryModerno) { 
+     // ... resto do código
     // --- VERSÃO NOVA (ideal) ---
     console.log(`[LOG] Executando buscarDadosUsuarioNotion (ChatID: ${chatId}) via notion.databases.query() [MODERNO]`);
     const response = await notion.databases.query({
