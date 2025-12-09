@@ -3,12 +3,22 @@ const axios = require('axios');
 const { buscarGastosDetalhados, gerarResumoFinanceiro } = require('./notion');
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
-// --- LISTA DE MODELOS (PRIORIDADE -> BACKUP) ---
-// Se o primeiro estiver lotado (429), ele tenta o próximo.
 const MODELOS_DISPONIVEIS = [
-  "nvidia/nemotron-nano-9b-v2:free",      // 1ª Tentativa: Melhor inteligência
-  "nvidia/nemotron-nano-12b-v2-vl:free", // 2ª Tentativa: Rápido e estável
-  "google/gemma-3-27b-it:free" // 3ª Tentativa: Backup final
+  // 1. QWEN 2.5 72B: O melhor "custo-benefício" do free. 
+  // Português nativo excelente e costuma estar menos cheio que o Gemini.
+  "qwen/qwen-2.5-72b-instruct:free", 
+
+  // 2. MISTRAL NEMO 12B: Muito melhor que o "Nano". 
+  // É leve, rápido e tem uma personalidade ótima para chat.
+  "mistralai/mistral-nemo:free",
+
+  // 3. GEMINI 2.0 FLASH: Mantemos aqui. Se ele estiver livre, é lucro.
+  // Se estiver cheio, o código pula automaticamente para o próximo.
+  "google/gemini-2.0-flash-exp:free",
+
+  // 4. LLAMA 3.1 8B: O "feijão com arroz". 
+  // Não é gênio, mas não fala errado. É o backup de segurança.
+  "meta-llama/llama-3.1-8b-instruct:free" 
 ];
 
 async function chamarOpenRouter(messages, jsonMode = false) {
