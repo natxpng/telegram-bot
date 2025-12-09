@@ -7,8 +7,8 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const MODELOS_DISPONIVEIS = [
 // TENTATIVA 1: Os "Gênios" (Podem estar cheios)
   "tngtech/deepseek-r1t2-chimera:free",
-  "google/gemini-2.0-flash-exp:free",
-  "google/gemini-2.0-flash-thinking-exp:free",
+  "amazon/nova-2-lite-v1:free",
+  "qwen/qwen3-coder:free",
   
   // TENTATIVA 2: Os "Robustos" (Bons e geralmente estáveis)
   "google/gemma-2-9b-it:free",
