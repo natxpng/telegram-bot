@@ -6,7 +6,7 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 // --- 1. SUA LISTA DE MODELOS ---
 const MODELOS_DISPONIVEIS = [
 // 1. MISTRAL NEMO: O "Segredo". Excelente em português, rápido e fila quase sempre vazia.
-  "mistralai/mistral-nemo:free",
+  "openai/gpt-oss-120b:free"
 
 ];
 
