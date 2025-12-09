@@ -8,7 +8,7 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const MODELOS_DISPONIVEIS = [
   "google/gemini-2.0-flash-exp:free",      // 1ª Tentativa: Melhor inteligência
   "meta-llama/llama-3.1-8b-instruct:free", // 2ª Tentativa: Rápido e estável
-  "microsoft/phi-3-medium-128k-instruct:free" // 3ª Tentativa: Backup final
+  "google/gemma-3-27b-it:free" // 3ª Tentativa: Backup final
 ];
 
 /**
