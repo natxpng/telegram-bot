@@ -3,30 +3,16 @@ const axios = require('axios');
 const { buscarGastosDetalhados, gerarResumoFinanceiro } = require('./notion');
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
+// --- 1. LISTA DE MODELOS LIMPA E ROBUSTA ---
 const MODELOS_DISPONIVEIS = [
-// 1. O melhor de todos (Google). Fala português perfeito e entende contexto.
-  "google/gemini-2.0-flash-exp:free",      
-
-  // 2. A versão "Raciocínio" do Google (muito boa para conselhos).
-  "google/gemini-2.0-flash-thinking-exp:free",
-
-  // 3. O Llama 70B (versão grande). É muito mais inteligente que o 8B ou Nano.
-  "meta-llama/llama-3.3-70b-instruct:free", 
-  
-  // 4. Backup final (versão menor do Llama, mas ainda digna).
-  "meta-llama/llama-3.1-8b-instruct:free",
-  // 1. QWEN 2.5 72B: O melhor "custo-benefício" do free. 
-  // Português nativo excelente e costuma estar menos cheio que o Gemini.
-  "qwen/qwen-2.5-72b-instruct:free", 
-  // 2. MISTRAL NEMO 12B: Muito melhor que o "Nano". 
-  // É leve, rápido e tem uma personalidade ótima para chat.
-  "mistralai/mistral-nemo:free",
-  // 4. ZEPHYR 7B: Modelo mais antigo, mas muito estável e quase sempre livre.
-  "huggingfaceh4/zephyr-7b-beta:free",
-  
-  // 5. LIQUID LFM 40B: Modelo novo, pouca gente usa, costuma estar livre.
-  "liquid/lfm-40b:free"
+  "google/gemini-2.0-flash-exp:free",      // O mais inteligente
+  "google/gemma-2-9b-it:free",             // Rápido e bom em PT-BR
+  "meta-llama/llama-3.1-8b-instruct:free", // Estável
+  "huggingfaceh4/zephyr-7b-beta:free"      // Backup
 ];
+
+// --- 2. LISTA DE CATEGORIAS OFICIAIS ---
+const CATEGORIAS_VALIDAS = ['Alimentação', 'Transporte', 'Moradia', 'Lazer', 'Saúde', 'Educação', 'Compras', 'Dívidas', 'Outro'];
 
 async function chamarOpenRouter(messages, jsonMode = false) {
   let lastError = null;
@@ -52,11 +38,9 @@ async function chamarOpenRouter(messages, jsonMode = false) {
   }
   throw lastError;
 }
-// ---------------------------------------------------------
-
 
 /**
- * SEU PROMPT ORIGINAL FOI RESTAURADO AQUI EMBAIXO
+ * ATENA: CHAT COM ESTRATÉGIA E PERSONALIDADE (SEU PROMPT ORIGINAL)
  */
 async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
   bot.sendChatAction(chatId, 'typing');
@@ -64,7 +48,6 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
     const resumoFinanceiro = await gerarResumoFinanceiro(chatId);
     const gastosDetalhados = await buscarGastosDetalhados(chatId); 
 
-    // --- 2. SEU CONTEXTO DE DADOS (CÓPIA FIEL) ---
     let contextoDados = "## Contexto do Usuário ##\n";
     
     if (dadosUsuario) {
@@ -78,8 +61,7 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
       contextoDados += `Meta de Poupança Mensal: R$ ${metaPoupanca.toFixed(2)}\n`;
       contextoDados += `\n## Situação Mês Atual ##\n`;
       contextoDados += `Total Gasto no Mês (Variáveis): R$ ${resumoFinanceiro.totalGastoMesAtual.toFixed(2)}\n`;
-      contextoDados += `Gastos por Categoria (Mês Atual): ${JSON.stringify(resumoFinanceiro.categoriasMesAtual)}\n`;
-
+      
       const disponivelEsteMes = renda - gastosFixos - resumoFinanceiro.totalGastoMesAtual - metaPoupanca;
       contextoDados += `Dinheiro Disponível (Renda - Fixos - Variáveis - Meta Poupança): R$ ${disponivelEsteMes.toFixed(2)}\n`;
 
@@ -93,9 +75,8 @@ async function handlePerguntaIA(bot, chatId, texto, dadosUsuario) {
       contextoDados = "O usuário ainda não finalizou o onboarding. Responda apenas à pergunta dele de forma geral, sem usar dados pessoais. Se ele perguntar sobre os gastos dele, diga que ele precisa se cadastrar com /start primeiro.";
     }
 
-    // --- 3. SEU PROMPT DA ATENA (CÓPIA FIEL) ---
     const systemPrompt = `
-Você é a "Atena", uma estrategista financeira pessoal (e amiga sincera).
+    Você é a "Atena", uma estrategista financeira pessoal (e amiga sincera).
     
     **Personalidade:**
     - Feminina, casual, direta e inteligente.
@@ -127,7 +108,6 @@ Você é a "Atena", uma estrategista financeira pessoal (e amiga sincera).
     - Se for reprovar: Explique a matemática ("Se comprar isso, falta pro aluguel").
     `;
 
-    // AQUI É A ÚNICA MUDANÇA: Usamos a função de retry em vez do axios direto
     let resposta = await chamarOpenRouter([
         { role: "system", content: systemPrompt },
         { role: "user", content: `${contextoDados}\n\nPERGUNTA DO USUÁRIO:\n"${texto}"` }
@@ -138,25 +118,32 @@ Você é a "Atena", uma estrategista financeira pessoal (e amiga sincera).
     return true;
 
   } catch (error) {
-    console.error('Erro detalhado IA:', error?.response?.data || error);
+    console.error('Erro detalhado IA:', error?.message);
     bot.sendMessage(chatId, 'Amiga, a conexão falhou aqui rapidinho. Tenta de novo?');
     return true;
   }
 }
 
 /**
- * MANTIVE ESTA FUNÇÃO NOVA APENAS PARA O CSV FUNCIONAR (PARCELAS/JSON)
- * ELA NÃO TEM PERSONALIDADE, É SÓ UM EXTRATOR DE DADOS TÉCNICO.
+ * FUNÇÃO TÉCNICA: EXTRAÇÃO DE JSON DO GASTO (TURBINADA)
  */
 async function analisarGastoComIA(descricao) {
   const systemPrompt = `
       Você é um motor de processamento de despesas. Extraia JSON estrito.
-      Categorias: [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
+      Categorias Válidas: [Alimentação, Transporte, Moradia, Lazer, Saúde, Educação, Compras, Dívidas, Outro]
       Métodos: [Crédito, Débito, Pix, Dinheiro, Boleto, Outro]
+      
       Regras:
       1. Extraia o valor (number).
-      2. Extraia parcelas (number, default 1). Se disser "3x", são 3 parcelas.
-      3. "Mercado/Comida" -> Alimentação. "Uber/Gasolina" -> Transporte.
+      2. Extraia parcelas (number, default 1). Se disser "3x" ou "3 vezes", são 3 parcelas.
+      3. ENQUADRE o item na categoria mais óbvia (Use o bom senso):
+         - Mercado, Feira, Ifood, Restaurante, Padaria, Bebida -> Alimentação
+         - Uber, 99, Ônibus, Metrô, Gasolina, Estacionamento, Mecânico -> Transporte
+         - Cinema, Teatro, Show, Netflix, Spotify, Steam, Jogos, Viagem -> Lazer
+         - Farmácia, Médico, Dentista, Exames, Terapia, Academia -> Saúde
+         - Aluguel, Condomínio, Luz, Internet, Gás, Reforma -> Moradia
+         - Curso, Faculdade, Livro, Material escolar -> Educação
+         - Roupas, Eletrônicos, Presentes, Shopee, Shein, Amazon -> Compras
       
       Retorne APENAS JSON: {"categoria": "String", "valor": Number, "tipoPagamento": "String", "parcelas": Number, "descricao_formatada": "String", "is_gasto": Boolean}
       `;
@@ -170,9 +157,26 @@ async function analisarGastoComIA(descricao) {
     content = content.replace(/```json/g, '').replace(/```/g, '').trim();
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) content = jsonMatch[0];
-    return JSON.parse(content);
+    
+    let dados = JSON.parse(content);
+
+    // --- SANITIZAÇÃO DE CATEGORIA ---
+    if (dados.categoria) {
+        const categoriaCerta = CATEGORIAS_VALIDAS.find(cat => 
+            cat.toLowerCase() === dados.categoria.toLowerCase() || 
+            cat.toLowerCase().includes(dados.categoria.toLowerCase()) || 
+            dados.categoria.toLowerCase().includes(cat.toLowerCase())
+        );
+        dados.categoria = categoriaCerta || "Outro";
+    } else {
+        dados.categoria = "Outro";
+    }
+
+    return dados;
+
   } catch (error) {
-    return { is_gasto: false };
+    console.error('Erro Parse JSON IA:', error.message);
+    return { is_gasto: false, categoria: "Outro" };
   }
 }
 
