@@ -11,14 +11,6 @@ const MODELOS_DISPONIVEIS = [
   // 2. MISTRAL NEMO 12B: Muito melhor que o "Nano". 
   // É leve, rápido e tem uma personalidade ótima para chat.
   "mistralai/mistral-nemo:free",
-
-  // 3. GEMINI 2.0 FLASH: Mantemos aqui. Se ele estiver livre, é lucro.
-  // Se estiver cheio, o código pula automaticamente para o próximo.
-  "google/gemini-2.0-flash-exp:free",
-
-  // 4. LLAMA 3.1 8B: O "feijão com arroz". 
-  // Não é gênio, mas não fala errado. É o backup de segurança.
-  "meta-llama/llama-3.1-8b-instruct:free" 
 ];
 
 async function chamarOpenRouter(messages, jsonMode = false) {
